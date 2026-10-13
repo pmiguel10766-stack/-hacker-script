@@ -1,5 +1,5 @@
--- // Delta Executor - TuboCAM v14
--- v13 + otimização de memória/peças no grid + limpeza de clones + sem loops duplicados.
+-- // Delta Executor - TuboCAM v13
+-- v12 + botão ON/OFF da grade na TV (OFF = tela velha com logo quicando).
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -13,7 +13,6 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 local camera = Workspace.CurrentCamera
 
 -- Limpar execuções anteriores
-if _G.TuboCAMConn then pcall(function() _G.TuboCAMConn:Disconnect() end) _G.TuboCAMConn = nil end
 if Workspace:FindFirstChild("CCTVRetroFolder") then Workspace.CCTVRetroFolder:Destroy() end
 if player.PlayerGui:FindFirstChild("RetroTVGui") then player.PlayerGui.RetroTVGui:Destroy() end
 if Lighting:FindFirstChild("CCTVNightVision") then Lighting.CCTVNightVision:Destroy() end
@@ -46,15 +45,13 @@ local CFG = {
     ICON_IMAGE_ID = "",
 
     GRID_MAX_CAMS = 16,
-    FEED_RADIUS = 40,          -- v14: era 60
-    FEED_PART_BUDGET = 400,    -- v14: era 800
-    PART_MIN = 100,            -- v14: mínimo por câmera
-    PART_MAX = 300,            -- v14: máximo por câmera
-    FEED_REFRESH = 15,         -- v14: era 10
+    FEED_RADIUS = 60,
+    FEED_PART_BUDGET = 800,
+    FEED_REFRESH = 10,
     FEED_FOV = 70,
     GRID_SHOW_NPCS = false,
     CHAR_INTERVAL = 0.25,
-    MAX_CHARS = 4,             -- v14: era 6
+    MAX_CHARS = 6,
     DEBUG = true,
 
     TV_W = 480, TV_H = 380,
@@ -153,10 +150,12 @@ local function isDark()
     return t < 5.5 or t > 18.5
 end
 
+-- Cor do LED de status (cinza quando a câmera está OFF)
 local function baseLed(c)
     return c.enabled and c.ledColor or Color3.fromRGB(60, 60, 60)
 end
 
+-- Próxima câmera ligada a partir do índice "from" (inclusive)
 local function nextEnabled(from)
     local n = #createdCams
     if n == 0 then return nil end
@@ -167,6 +166,7 @@ local function nextEnabled(from)
     return nil
 end
 
+-- Clona mesmo se o objeto estiver marcado como Archivable = false
 local function safeClone(inst)
     local was = inst.Archivable
     if not was then pcall(function() inst.Archivable = true end) end
@@ -658,6 +658,7 @@ local function updateTVScreen()
         state = (p < 1) and "boot" or "live"
     end
 
+    -- hasCams = tem câmeras E a grade está ligada (OFF = tela velha)
     local hasCams = #createdCams > 0 and ST.gridMode
     local showGrid = hasCams and (state == "live" or (state == "boot" and p >= 0.85))
 
@@ -765,6 +766,7 @@ do
     }, UI.hud)
 end
 
+-- Botões acima do HUD (só enquanto assiste)
 local function hudButton(text, yOffset, color)
     return new("TextButton", {
         Size = UDim2.new(0, 270, 0, 28), Position = UDim2.new(0.02, 0, 0.72, yOffset),
@@ -849,6 +851,7 @@ local function getCameraSpawnCFrame()
         return CFrame.lookAt(pos, pos + hit.Normal), true
     end
 
+    -- Terreno aberto: a câmera nasce virada PARA o avatar
     local pos = origin + flat * 6
     return CFrame.lookAt(pos, pos - flat), false
 end
@@ -1050,7 +1053,7 @@ end
 UI.btnMotion.MouseButton1Click:Connect(function() setMotion(not ST.motionOn) end)
 UI.btnMotionPanel.MouseButton1Click:Connect(function() setMotion(not ST.motionOn) end)
 
--- ----- Botão: Grade na TV ON/OFF -----
+-- ----- Botão: Grade na TV ON/OFF (NOVO v13) -----
 do
     UI.gridMenu = new("Frame", {
         Size = UDim2.new(0, 210, 0, 44), Position = UDim2.new(0.02, 0, 0.05, 462),
@@ -1172,6 +1175,19 @@ local function layoutFor(n)
     return 4, 4
 end
 
+local function clearGrid()
+    for _, cell in ipairs(GRID.cells) do
+        if cell.frame then cell.frame:Destroy() end
+    end
+    GRID.cells = {}
+    GRID.count = 0
+end
+
+FN.gridClear = function()
+    if GRID.count == 0 and #GRID.cells == 0 then return end
+    clearGrid()
+end
+
 -- Libera o mundo e os avatares clonados de um quadrado
 FN.releaseCell = function(cell)
     if cell.world then
@@ -1185,22 +1201,6 @@ FN.releaseCell = function(cell)
     cell.styleKey = nil
     cell.lastRefresh = 0
     cell.dbgMsg = "aguardando..."
-end
-
--- v14: libera clones de cada quadrado ANTES de destruir os frames
-local function clearGrid()
-    for _, cell in ipairs(GRID.cells) do
-        pcall(FN.releaseCell, cell)
-        if cell.frame then cell.frame:Destroy() end
-    end
-    GRID.cells = {}
-    GRID.count = 0
-    GRID.charModels = {}
-end
-
-FN.gridClear = function()
-    if GRID.count == 0 and #GRID.cells == 0 then return end
-    clearGrid()
 end
 
 local function buildGrid()
@@ -1298,7 +1298,7 @@ local function snapshotCell(cell, now)
     if not cam or not cam.model.Parent then return end
 
     local n = math.max(GRID.count, 1)
-    local budget = math.clamp(math.floor(CFG.FEED_PART_BUDGET / n), CFG.PART_MIN, CFG.PART_MAX)
+    local budget = math.clamp(math.floor(CFG.FEED_PART_BUDGET / n), 150, 600)
     local camPos = cam.lens.Position
 
     local ignore = {folder}
@@ -1307,7 +1307,7 @@ local function snapshotCell(cell, now)
     local op = OverlapParams.new()
     op.FilterType = Enum.RaycastFilterType.Exclude
     op.FilterDescendantsInstances = ignore
-    op.MaxParts = 2000
+    op.MaxParts = 4000
 
     local found = Workspace:GetPartBoundsInRadius(camPos, CFG.FEED_RADIUS, op)
 
@@ -1347,10 +1347,7 @@ local function snapshotCell(cell, now)
         local c = safeClone(item[1])
         if c then
             for _, ch in ipairs(c:GetDescendants()) do
-                if ch:IsA("LuaSourceContainer") or ch:IsA("Sound") or ch:IsA("Light")
-                    or ch:IsA("ParticleEmitter") or ch:IsA("SurfaceGui") then
-                    ch:Destroy()
-                end
+                if ch:IsA("LuaSourceContainer") or ch:IsA("Sound") then ch:Destroy() end
             end
             c.Anchored = true
             c.Parent = newWorld
@@ -1365,11 +1362,9 @@ local function snapshotCell(cell, now)
         warn("[TuboCAM] nenhuma peça clonada (encontradas: " .. #found .. ")")
     end
 
-    -- v14: troca o mundo e destrói o antigo na hora (sem acumular)
-    local old = cell.world
     newWorld.Parent = cell.vp
+    if cell.world then cell.world:Destroy() end
     cell.world = newWorld
-    if old then old:Destroy() end
     cell.lastRefresh = now
     cell.styleKey = nil
 end
@@ -1394,8 +1389,7 @@ local function makeCharClone(model)
         if d:IsA("LuaSourceContainer") or d:IsA("Sound")
             or d:IsA("BodyMover") or d:IsA("Constraint")
             or d:IsA("Animator") or d:IsA("Humanoid")
-            or d:IsA("ForceField") or d:IsA("BillboardGui")
-            or d:IsA("Tool") or d:IsA("Light") or d:IsA("ParticleEmitter") then
+            or d:IsA("ForceField") or d:IsA("BillboardGui") then
             d:Destroy()
         elseif d:IsA("BasePart") then
             d.Anchored = true
@@ -1543,8 +1537,6 @@ FN.gridUpdate = function(now, visible)
             else
                 cell.vp.Visible = true
                 cell.off.Visible = false
-                -- v14: garante que o viewport sempre use a câmera certa
-                if cell.vp.CurrentCamera ~= cell.vcam then cell.vp.CurrentCamera = cell.vcam end
                 cell.vcam.CFrame = cam.lens.CFrame
                 styleCell(cell)
                 if cam.motionUntil and now < cam.motionUntil then
@@ -1680,8 +1672,6 @@ local function startViewing()
     UI.nightEffect.Enabled = ST.nightVision
     setViewUI(true)
     updateIR()
-    -- v14: libera memória do grid enquanto assiste em tela cheia
-    if FN.gridClear then FN.gridClear() end
 end
 
 local function stopViewing()
@@ -1765,7 +1755,6 @@ end
 -- ===================== 6. EVENTOS =====================
 UI.btnTV.MouseButton1Click:Connect(function()
     if ST.viewing then stopViewing() end
-    FN.gridClear()
     local tv = createRetroTV(rootPart.CFrame * CFrame.new(0, -1, -5))
     attachTVNoise(tv.TVScreen)
     tv.TVScreen.ClickDetector.MouseClick:Connect(startViewing)
@@ -1821,7 +1810,7 @@ refreshMotionButtons()
 applyPanels()
 
 -- ===================== 7. LOOP PRINCIPAL =====================
-_G.TuboCAMConn = RunService.RenderStepped:Connect(function(dt)
+RunService.RenderStepped:Connect(function(dt)
     updateTVScreen()
     updateNVRLeds()
 
@@ -1981,4 +1970,4 @@ _G.TuboCAMConn = RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
-print("TuboCAM v14 ativado!")
+print("TuboCAM v13 ativado!")
