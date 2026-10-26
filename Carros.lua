@@ -1,31 +1,19 @@
 --[[
-    ╔══════════════════════════════════════════════════════════╗
-    ║   FIAT UNO SERVICE HUB  •  v2.0                          ║
-    ║   Script client-side em Luau (Delta Executor / PC / Mobile)
-    ╚══════════════════════════════════════════════════════════╝
+    FIAT UNO SERVICE HUB • v2.1
+    Script client-side em Luau (Delta Executor / PC / Mobile)
 
-    NOVIDADES v2.0
-      • ProximityPrompt no carro: aproxime-se e prima E (ou toque) para ENTRAR / SAIR
-      • O carro agora CONDUZ: aceleração, travagem, marcha-atrás, direção, colisões
-        simples com paredes e seguimento do terreno (subidas/descidas)
-      • HUD de RPM (conta-rotações, velocidade, marcha) enquanto conduz
-      • Botão 2 (RPM Máximo): parado = simulação visual de rotação;
-        a conduzir = define o LIMITE de RPM (limita a velocidade máxima)
+    NOVIDADES v2.1
+      • Botão 5 "Luzes": Desligadas > Médios > Máximos (faróis com luz real)
+      • Botão 💡 no HUD enquanto conduz + tecla L (PC)
+      • Lanternas traseiras acendem forte ao travar
 
     CONTROLOS
       PC:     W/↑ acelerar | S/↓ travar e marcha-atrás | A/D ou ←/→ direção
-              Espaço = travão de mão | E (prompt) ou botão "Sair" = sair do carro
-      Mobile: botões ◀ ▶ (direção), ▲ (acelerar), ▼ (travar/ré) no ecrã
-
-    NOTAS
-      • O carro é criado do lado do cliente: só você o vê.
-      • PC: tecla RightShift mostra/oculta o painel.
-      • Executar de novo substitui o painel e o carro anteriores.
+              Espaço = travão de mão | L = luzes | E = entrar/sair
+      Mobile: ◀ ▶ direção, ▲ acelerar, ▼ travar/ré, 💡 luzes
+      RightShift mostra/oculta o painel (PC)
 ]]
 
-----------------------------------------------------------------
--- 1) SERVIÇOS
-----------------------------------------------------------------
 local Players          = game:GetService("Players")
 local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -38,27 +26,22 @@ while not LocalPlayer do
 	LocalPlayer = Players.LocalPlayer
 end
 
-----------------------------------------------------------------
--- 2) CONFIGURAÇÃO E TEMA
-----------------------------------------------------------------
 local CONFIG = {
 	GuiName        = "FiatUnoServiceHub",
 	ModelName      = "FiatUnoServico",
-	SpawnDistance  = 16,    -- distância (studs) à frente do jogador
+	SpawnDistance  = 16,
 	MaxRPM         = 999,
 	Width          = 330,
-	Height         = 436,
+	Height         = 512,
 	ButtonHeight   = 68,
 
-	-- Condução
-	TopSpeedMin    = 30,    -- velocidade máx. com limite de RPM mínimo (studs/s)
-	TopSpeedRange  = 110,   -- acrescento ao limite máximo de RPM
+	TopSpeedMin    = 30,
+	TopSpeedRange  = 110,
 	ReverseSpeed   = 22,
 	WheelBase      = 7.8,
-	SeatOffset     = CFrame.new(-1.2, 4.3, 0.4), -- posição do condutor (lado esquerdo)
-	ExitOffset     = CFrame.new(-5.8, 3.2, 0.4), -- onde o jogador aparece ao sair
+	SeatOffset     = CFrame.new(-1.2, 4.3, 0.4),
+	ExitOffset     = CFrame.new(-5.8, 3.2, 0.4),
 
-	-- Paleta usada pelo botão "Editor de Cor"
 	Palette = {
 		{ Name = "Branco",        Color = Color3.fromRGB(245, 245, 245) },
 		{ Name = "Vermelho",      Color = Color3.fromRGB(200, 30, 40)   },
@@ -73,6 +56,8 @@ local CONFIG = {
 	},
 }
 
+local LIGHT_NAMES = { [0] = "Desligadas", [1] = "Médios", [2] = "Máximos" }
+
 local THEME = {
 	Background = Color3.fromRGB(18, 18, 24),
 	TopBar     = Color3.fromRGB(26, 26, 36),
@@ -85,17 +70,17 @@ local THEME = {
 	Orange     = Color3.fromHex("F39C12"),
 	Blue       = Color3.fromHex("3498DB"),
 	Red        = Color3.fromHex("E74C3C"),
+	Yellow     = Color3.fromHex("D4A017"),
 }
 
 ----------------------------------------------------------------
--- 3) LIMPEZA DE EXECUÇÕES ANTERIORES
+-- LIMPEZA DE EXECUÇÕES ANTERIORES
 ----------------------------------------------------------------
 local env = (getgenv and getgenv()) or _G
 if env.FiatUnoHubCleanup then
 	pcall(env.FiatUnoHubCleanup)
 end
 
--- Remove carros órfãos de execuções anteriores (marcados por atributo)
 for _, obj in ipairs(Workspace:GetChildren()) do
 	if obj:IsA("Model") and obj:GetAttribute("FiatUnoHub") then
 		pcall(function() obj:Destroy() end)
@@ -103,7 +88,7 @@ for _, obj in ipairs(Workspace:GetChildren()) do
 end
 
 ----------------------------------------------------------------
--- 4) FUNÇÕES AUXILIARES
+-- FUNÇÕES AUXILIARES
 ----------------------------------------------------------------
 local connections = {}
 
@@ -113,7 +98,6 @@ local function connect(signal, callback)
 	return c
 end
 
--- Cria uma instância com propriedades e filhos numa só chamada
 local function create(class, props, children)
 	local inst = Instance.new(class)
 	local parent
@@ -138,56 +122,61 @@ local function tween(obj, time, props, style, dir)
 end
 
 ----------------------------------------------------------------
--- 5) ESTADO GLOBAL
+-- ESTADO GLOBAL
 ----------------------------------------------------------------
 local State = {
-	Car       = nil,   -- Model atual
-	Prompt    = nil,   -- ProximityPrompt do carro
-	RootCF    = nil,   -- CFrame de repouso (posição + rotação em Y)
-	Wheels    = {},    -- partes que giram
-	Body      = {},    -- partes da carroçaria (mudam de cor)
-	Accent    = {},    -- partes de acento (versão mais escura da cor)
-	LocalCF   = {},    -- offset de cada parte relativo à raiz
-	RPM       = 0,     -- RPM do slider (simulação parado)
+	Car       = nil,
+	Prompt    = nil,
+	RootCF    = nil,
+	Wheels    = {},
+	Body      = {},
+	Accent    = {},
+	LocalCF   = {},
+	Heads     = {},
+	Tails     = {},
+	Spots     = {},
+	Points    = {},
+	LightMode = 0,
+	Braking   = false,
+	RPM       = 0,
 	ColorIdx  = 1,
-	Busy      = false, -- bloqueia ações durante animações
+	Busy      = false,
 	SimConn   = nil,
 	Spin      = 0,
 	Clock     = 0,
 	Settled   = true,
 
-	-- Condução
 	Driving   = false,
-	Char      = nil,   -- { hrp, hum, anchored, hidden }
+	Char      = nil,
 	RayParams = nil,
 	Pos       = Vector3.zero,
 	Yaw       = 0,
 	Pitch     = 0,
-	Speed     = 0,     -- studs/s (negativo = marcha-atrás)
-	Steer     = 0,     -- ângulo das rodas (rad)
+	Speed     = 0,
+	Steer     = 0,
 	Fall      = 0,
-	Limit     = CONFIG.MaxRPM, -- limite de RPM (a conduzir)
+	Limit     = CONFIG.MaxRPM,
 	LiveRPM   = 0,
 	Gear      = "N",
 }
 
--- Entradas dos botões de toque
 local Touch = { Gas = false, Brake = false, Left = false, Right = false }
 
-local exitCar -- declarada aqui, definida mais abaixo
+local exitCar
 
 ----------------------------------------------------------------
--- 6) CONSTRUÇÃO DO MODELO 3D (Fiat Uno de serviço)
---    Frente do carro = -Z | Origem = centro, ao nível do chão
+-- MODELO 3D
 ----------------------------------------------------------------
 local function buildCar(rootCF)
 	local model = Instance.new("Model")
 	model.Name = CONFIG.ModelName
 	model:SetAttribute("FiatUnoHub", true)
 
-	local data = { Model = model, Wheels = {}, Body = {}, Accent = {}, LocalCF = {}, Prompt = nil }
+	local data = {
+		Model = model, Wheels = {}, Body = {}, Accent = {}, LocalCF = {},
+		Heads = {}, Tails = {}, Spots = {}, Points = {}, Prompt = nil,
+	}
 
-	-- Adiciona uma peça ao modelo
 	local function add(name, size, offset, color, kind, material, shape)
 		local p = Instance.new("Part")
 		p.Name = name
@@ -219,12 +208,10 @@ local function buildCar(rootCF)
 	local ACCENT = WHITE:Lerp(Color3.new(0, 0, 0), 0.35)
 	local V3, CF = Vector3.new, CFrame.new
 
-	-- Peça-raiz invisível (pivô do modelo)
 	local root = add("Raiz", V3(1, 1, 1), CF(), BLACK)
 	root.Transparency = 1
 	model.PrimaryPart = root
 
-	-- ProximityPrompt: entrar / sair do carro
 	data.Prompt = create("ProximityPrompt", {
 		Name = "PromptCarro",
 		ActionText = "Entrar",
@@ -235,56 +222,76 @@ local function buildCar(rootCF)
 		MaxActivationDistance = 14,
 		RequiresLineOfSight = false,
 		Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton,
-		Enabled = false, -- ativado quando o carro assenta no chão
+		Enabled = false,
 		Parent = root,
 	})
 
-	-- ── Carroçaria ────────────────────────────────────────────
+	-- Carroçaria
 	add("Carroceria", V3(6, 1.5, 12.4), CF(0, 2.05, 0), WHITE, "body").CanCollide = true
 	add("Capo",       V3(5.9, 0.35, 3.6), CF(0, 2.97, -4.3), WHITE, "body")
 	add("Traseira",   V3(5.9, 0.35, 2.1), CF(0, 2.97, 5.15), WHITE, "body")
 	add("Teto",       V3(5.6, 0.25, 6.4), CF(0, 4.875, 0.9), WHITE, "body")
 
-	-- Cabine envidraçada + para-brisas inclinado
 	local cabin = add("VidrosLaterais", V3(5.4, 1.6, 6.4), CF(0, 3.95, 0.9), GLASS)
 	cabin.Transparency = 0.45
 	local windshield = add("ParaBrisas", V3(5.3, 1.7, 0.1),
 		CF(0, 3.95, -2.45) * CFrame.Angles(math.rad(20), 0, 0), GLASS)
 	windshield.Transparency = 0.4
 
-	-- Colunas A, B e C
 	for _, s in ipairs({ -1, 1 }) do
 		add("ColunaA", V3(0.3, 1.75, 0.3), CF(s * 2.75, 3.95, -2.45) * CFrame.Angles(math.rad(20), 0, 0), WHITE, "body")
 		add("ColunaB", V3(0.3, 1.6, 0.35), CF(s * 2.75, 3.95, 0.9), WHITE, "body")
 		add("ColunaC", V3(0.3, 1.6, 0.35), CF(s * 2.75, 3.95, 3.95), WHITE, "body")
 	end
 
-	-- ── Frente: faixa preta, grelha, faróis ───────────────────
+	-- Frente
 	add("FrenteNegra", V3(5.9, 0.9, 0.25), CF(0, 2.4, -6.3), BLACK)
 	add("GrelhaFundo", V3(3.4, 0.55, 0.1), CF(0, 2.45, -6.45), Color3.fromRGB(40, 40, 44))
 	for i = -1, 1 do
 		add("GrelhaRipa", V3(3.2, 0.06, 0.06), CF(0, 2.45 + i * 0.15, -6.52), SILVER, nil, Enum.Material.Metal)
 	end
 	add("Emblema", V3(0.35, 0.35, 0.1), CF(0, 2.45, -6.58), SILVER, nil, Enum.Material.Metal, Enum.PartType.Ball)
+
+	-- Faróis e lanternas (com luzes reais, controladas pelo botão)
 	for _, s in ipairs({ -1, 1 }) do
-		add("Farol",  V3(1.2, 0.55, 0.2), CF(s * 2.3, 2.5, -6.42), Color3.fromRGB(240, 240, 215), nil, Enum.Material.Neon)
-		add("Lanterna", V3(0.9, 0.8, 0.2), CF(s * 2.4, 2.5, 6.3), Color3.fromRGB(200, 30, 30), nil, Enum.Material.Neon)
+		local farol = add("Farol", V3(1.2, 0.55, 0.2), CF(s * 2.3, 2.5, -6.42),
+			Color3.fromRGB(170, 170, 155))
+		table.insert(data.Heads, farol)
+		table.insert(data.Spots, create("SpotLight", {
+			Face = Enum.NormalId.Front,
+			Range = 60,
+			Brightness = 3,
+			Angle = 50,
+			Color = Color3.fromRGB(255, 244, 214),
+			Enabled = false,
+			Parent = farol,
+		}))
+
+		local lant = add("Lanterna", V3(0.9, 0.8, 0.2), CF(s * 2.4, 2.5, 6.3),
+			Color3.fromRGB(110, 20, 20))
+		table.insert(data.Tails, lant)
+		table.insert(data.Points, create("PointLight", {
+			Range = 9,
+			Brightness = 1.2,
+			Color = Color3.fromRGB(255, 40, 40),
+			Enabled = false,
+			Parent = lant,
+		}))
 	end
 
-	-- ── Para-choques pretos e matrículas ──────────────────────
+	-- Para-choques e matrículas
 	add("ParachoquesFrente",  V3(6.2, 0.9, 0.7), CF(0, 1.65, -6.35), BLACK)
 	add("ParachoquesTras",    V3(6.2, 0.9, 0.7), CF(0, 1.65, 6.35), BLACK)
 	add("MatriculaFrente", V3(1.9, 0.5, 0.06), CF(0, 1.7, -6.72), Color3.fromRGB(235, 235, 225))
 	add("MatriculaTras",   V3(1.9, 0.5, 0.06), CF(0, 1.7, 6.72), Color3.fromRGB(235, 235, 225))
 
-	-- ── Faixa preta lateral, logótipo (círculo vermelho), espelhos
 	for _, s in ipairs({ -1, 1 }) do
 		add("FaixaLateral", V3(0.06, 0.35, 12), CF(s * 3.03, 1.7, 0), BLACK)
 		add("LogoPorta", V3(0.05, 0.95, 0.95), CF(s * 3.04, 2.35, -0.6), Color3.fromRGB(220, 20, 30), nil, nil, CYL)
 		add("Espelho", V3(0.45, 0.3, 0.25), CF(s * 3.05, 3.85, -2.1), BLACK)
 	end
 
-	-- ── Interior ──────────────────────────────────────────────
+	-- Interior
 	local SEAT = Color3.fromRGB(60, 60, 66)
 	add("Painel", V3(5.2, 0.5, 0.6), CF(0, 3.35, -1.9), Color3.fromRGB(35, 35, 40))
 	for _, s in ipairs({ -1, 1 }) do
@@ -294,7 +301,7 @@ local function buildCar(rootCF)
 	add("BancoTras", V3(5, 0.5, 1.4), CF(0, 3.4, 2.9), SEAT)
 	add("EncostoTras", V3(5, 1.2, 0.3), CF(0, 3.85, 3.65), SEAT)
 
-	-- ── Rodas (pneu + jante + raios para ver a rotação) ───────
+	-- Rodas
 	for _, s in ipairs({ -1, 1 }) do
 		for _, z in ipairs({ -3.9, 3.9 }) do
 			add("Pneu", V3(0.9, 2.3, 2.3), CF(s * 2.75, 1.15, z), Color3.fromRGB(22, 22, 24), "wheel", nil, CYL)
@@ -308,7 +315,7 @@ local function buildCar(rootCF)
 		end
 	end
 
-	-- ── Suporte de teto + escada (detalhe emblemático) ────────
+	-- Suporte de teto + escada
 	for _, s in ipairs({ -1, 1 }) do
 		for _, z in ipairs({ -1.2, 3.0 }) do
 			add("PernaSuporte", V3(0.18, 0.45, 0.18), CF(s * 2.4, 5.225, z), ACCENT, "accent")
@@ -331,9 +338,8 @@ local function buildCar(rootCF)
 end
 
 ----------------------------------------------------------------
--- 7) INTERFACE GRÁFICA
+-- INTERFACE GRÁFICA
 ----------------------------------------------------------------
--- Lista de destinos possíveis para a GUI (ordem de preferência)
 local function getContainers()
 	local list = {}
 	pcall(function()
@@ -348,7 +354,6 @@ local function getContainers()
 	return list
 end
 
--- Remove GUIs antigas com o mesmo nome
 for _, container in ipairs(getContainers()) do
 	pcall(function()
 		local old = container:FindFirstChild(CONFIG.GuiName)
@@ -364,15 +369,13 @@ local gui = create("ScreenGui", {
 	DisplayOrder = 999,
 })
 
--- Escala responsiva (telemóvel / ecrãs pequenos)
 local function computeScale()
 	local cam = Workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	return math.clamp(math.min(vp.Y / 500, vp.X / 380), 0.55, 1)
+	return math.clamp(math.min(vp.Y / 540, vp.X / 380), 0.5, 1)
 end
 local baseScale = computeScale()
 
--- Contentor principal (arrastável) + sombra
 local holder = create("Frame", {
 	Name = "Holder",
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -409,7 +412,6 @@ local main = create("Frame", {
 	create("UIStroke", { Color = THEME.Stroke, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
 })
 
--- ── Barra de topo ─────────────────────────────────────────────
 local topBar = create("Frame", {
 	Name = "TopBar",
 	Size = UDim2.new(1, 0, 0, 58),
@@ -419,7 +421,6 @@ local topBar = create("Frame", {
 }, {
 	create("UICorner", { CornerRadius = UDim.new(0, 16) }),
 })
--- Preenchimento para endireitar os cantos inferiores da barra
 create("Frame", {
 	Name = "Preenchimento",
 	Position = UDim2.new(0, 0, 1, -16),
@@ -478,7 +479,7 @@ create("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.fromOffset(62, 29),
 	Size = UDim2.new(1, -90, 0, 16),
-	Text = "Painel de controlo • v2.0",
+	Text = "Painel de controlo • v2.1",
 	Font = Enum.Font.Gotham,
 	TextSize = 11,
 	TextColor3 = THEME.Muted,
@@ -494,11 +495,13 @@ create("Frame", {
 	Parent = topBar,
 }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 
--- ── Contentor dos botões ──────────────────────────────────────
+local NUM_BUTTONS = 5
+local CONTENT_H = CONFIG.ButtonHeight * NUM_BUTTONS + 10 * (NUM_BUTTONS - 1)
+
 local content = create("Frame", {
 	Name = "Conteudo",
 	Position = UDim2.fromOffset(14, 72),
-	Size = UDim2.new(1, -28, 0, CONFIG.ButtonHeight * 4 + 30),
+	Size = UDim2.new(1, -28, 0, CONTENT_H),
 	BackgroundTransparency = 1,
 	Parent = main,
 }, {
@@ -508,7 +511,6 @@ local content = create("Frame", {
 	}),
 })
 
--- Efeito de clarão ao clicar
 local function flash(btn)
 	local f = create("Frame", {
 		Size = UDim2.fromScale(1, 1),
@@ -523,7 +525,6 @@ local function flash(btn)
 	end)
 end
 
--- Abanão (feedback de erro)
 local function shake(btn)
 	task.spawn(function()
 		for _, r in ipairs({ -3, 3, -2, 2, 0 }) do
@@ -533,7 +534,6 @@ local function shake(btn)
 	end)
 end
 
--- Efeitos de hover / toque
 local function attachEffects(btn, baseColor, noScale)
 	local scale = btn:FindFirstChildOfClass("UIScale")
 	local hover = false
@@ -556,7 +556,6 @@ local function attachEffects(btn, baseColor, noScale)
 	end
 end
 
--- Fábrica de botões estilizados
 local function createButton(def)
 	local btn = create("TextButton", {
 		Name = def.name,
@@ -637,7 +636,6 @@ local function createButton(def)
 	return btn, sub
 end
 
--- Os 4 botões
 local createBtn, createSub = createButton({
 	name = "BtnCriar", order = 1, color = THEME.Green, icon = "🚗",
 	title = "1. Criar Carro", sub = "Gera o Fiat Uno à sua frente",
@@ -650,12 +648,15 @@ local colorBtn, colorSub = createButton({
 	name = "BtnCor", order = 3, color = THEME.Blue, icon = "🎨",
 	title = "3. Editor de Cor", sub = "", rightPad = 34,
 })
+local lightBtn, lightSub = createButton({
+	name = "BtnLuzes", order = 4, color = THEME.Yellow, icon = "💡",
+	title = "4. Luzes", sub = "Luzes: Desligadas",
+})
 local deleteBtn, deleteSub = createButton({
-	name = "BtnExcluir", order = 4, color = THEME.Red, icon = "🗑",
-	title = "4. Excluir Carro", sub = "Remove o modelo do mundo",
+	name = "BtnExcluir", order = 5, color = THEME.Red, icon = "🗑",
+	title = "5. Excluir Carro", sub = "Remove o modelo do mundo",
 })
 
--- Barra de progresso do RPM (dentro do botão 2)
 local rpmTrack = create("Frame", {
 	Name = "Trilho",
 	Position = UDim2.fromOffset(62, 54),
@@ -673,7 +674,6 @@ local rpmFill = create("Frame", {
 	Parent = rpmTrack,
 }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
 
--- Amostra de cor (dentro do botão 3)
 local swatch = create("Frame", {
 	Name = "Amostra",
 	AnchorPoint = Vector2.new(1, 0.5),
@@ -687,10 +687,9 @@ local swatch = create("Frame", {
 	create("UIStroke", { Color = THEME.White, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
 })
 
--- ── Barra de estado ───────────────────────────────────────────
 local statusBar = create("Frame", {
 	Name = "Estado",
-	Position = UDim2.fromOffset(14, 72 + CONFIG.ButtonHeight * 4 + 30 + 12),
+	Position = UDim2.fromOffset(14, 72 + CONTENT_H + 12),
 	Size = UDim2.new(1, -28, 0, 34),
 	BackgroundColor3 = THEME.Panel,
 	BorderSizePixel = 0,
@@ -735,7 +734,7 @@ local function notify(text, color)
 	end)
 end
 
--- ── HUD de condução (conta-rotações + controlos de toque) ─────
+-- HUD de condução
 local hud = create("Frame", {
 	Name = "Hud",
 	Size = UDim2.fromScale(1, 1),
@@ -821,7 +820,7 @@ create("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.fromOffset(16, 96),
 	Size = UDim2.new(1, -32, 0, 14),
-	Text = "W/S acelerar/travar · A/D direção · Espaço travão de mão",
+	Text = "W/S acelerar/travar · A/D direção · Espaço travão · L luzes",
 	Font = Enum.Font.Gotham,
 	TextSize = 10,
 	TextColor3 = THEME.Muted,
@@ -829,11 +828,11 @@ create("TextLabel", {
 	Parent = tach,
 })
 
--- Botão "Sair"
+-- Botões "Sair" e "Luz" do HUD (lado a lado)
 local exitBtn = create("TextButton", {
 	Name = "BtnSair",
-	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -(24 + TACH_H * baseScale + 10)),
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(0.5, -4 * baseScale, 1, -(24 + TACH_H * baseScale + 10)),
 	Size = UDim2.fromOffset(130, 36),
 	BackgroundColor3 = THEME.Red,
 	AutoButtonColor = true,
@@ -847,8 +846,25 @@ local exitBtn = create("TextButton", {
 	create("UICorner", { CornerRadius = UDim.new(0, 10) }),
 	create("UIScale", { Scale = baseScale }),
 })
+local hudLightBtn = create("TextButton", {
+	Name = "BtnLuzHud",
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0.5, 4 * baseScale, 1, -(24 + TACH_H * baseScale + 10)),
+	Size = UDim2.fromOffset(130, 36),
+	BackgroundColor3 = THEME.Yellow,
+	AutoButtonColor = true,
+	Text = "💡  Luzes",
+	Font = Enum.Font.GothamBold,
+	TextSize = 13,
+	TextColor3 = THEME.White,
+	BorderSizePixel = 0,
+	Parent = hud,
+}, {
+	create("UICorner", { CornerRadius = UDim.new(0, 10) }),
+	create("UIScale", { Scale = baseScale }),
+})
 
--- Controlos de toque (só em dispositivos com ecrã tátil)
+-- Controlos de toque
 local touchLeft = create("Frame", {
 	Name = "ToqueEsquerda",
 	AnchorPoint = Vector2.new(0, 1),
@@ -909,7 +925,7 @@ makePad(touchLeft,  "▶", UDim2.fromOffset(94, 0), THEME.Blue,  "Right")
 makePad(touchRight, "▲", UDim2.fromOffset(0, 0),  THEME.Green, "Gas")
 makePad(touchRight, "▼", UDim2.fromOffset(0, 94), THEME.Red,   "Brake")
 
--- ── Arrastar o painel pela barra de topo ──────────────────────
+-- Arrastar o painel
 do
 	local dragging, dragStart, startPos = false, nil, nil
 
@@ -939,7 +955,6 @@ do
 	end)
 end
 
--- Tecla RightShift mostra/oculta (PC)
 connect(UserInputService.InputBegan, function(input, processed)
 	if not processed and input.KeyCode == Enum.KeyCode.RightShift then
 		gui.Enabled = not gui.Enabled
@@ -947,7 +962,7 @@ connect(UserInputService.InputBegan, function(input, processed)
 end)
 
 ----------------------------------------------------------------
--- 8) ATUALIZAÇÃO DA UI (RPM / COR / HUD)
+-- ATUALIZAÇÃO DA UI
 ----------------------------------------------------------------
 local function updateRpmUI(animated)
 	local shown = State.Driving and State.Limit or State.RPM
@@ -988,13 +1003,56 @@ local function updateHud()
 	updateRpmUI(false)
 end
 
+-- Atualiza faróis, lanternas e luzes reais conforme o modo e a travagem
+local function refreshLights()
+	local mode = State.LightMode
+	local on = mode > 0
+
+	for _, p in ipairs(State.Heads) do
+		if p.Parent then
+			p.Material = on and Enum.Material.Neon or Enum.Material.SmoothPlastic
+			p.Color = on and Color3.fromRGB(255, 250, 225) or Color3.fromRGB(170, 170, 155)
+		end
+	end
+	for _, s in ipairs(State.Spots) do
+		if s.Parent then
+			s.Enabled = on
+			s.Brightness = (mode == 2) and 6 or 3
+			s.Range = (mode == 2) and 120 or 60
+			s.Angle = (mode == 2) and 75 or 50
+		end
+	end
+
+	local tailOn = on or State.Braking
+	for _, p in ipairs(State.Tails) do
+		if p.Parent then
+			p.Material = tailOn and Enum.Material.Neon or Enum.Material.SmoothPlastic
+			if State.Braking then
+				p.Color = Color3.fromRGB(255, 30, 30)
+			elseif on then
+				p.Color = Color3.fromRGB(190, 25, 25)
+			else
+				p.Color = Color3.fromRGB(110, 20, 20)
+			end
+		end
+	end
+	for _, l in ipairs(State.Points) do
+		if l.Parent then
+			l.Enabled = tailOn
+			l.Brightness = State.Braking and 2.5 or 1.2
+		end
+	end
+
+	lightSub.Text = "Luzes: " .. LIGHT_NAMES[mode]
+end
+
 updateRpmUI(false)
 updateColorUI(1, false)
+refreshLights()
 
 ----------------------------------------------------------------
--- 9) LÓGICA DO CARRO
+-- LÓGICA DO CARRO
 ----------------------------------------------------------------
--- Lê as entradas (teclado + botões de toque)
 local function readInput()
 	local throttle, steer, hand = 0, 0, false
 	if not UserInputService:GetFocusedTextBox() then
@@ -1012,20 +1070,17 @@ local function readInput()
 	return math.clamp(throttle, -1, 1), math.clamp(steer, -1, 1), hand
 end
 
--- Altura do chão num ponto (nil se não houver chão)
 local function groundAt(point)
 	local r = Workspace:Raycast(point + Vector3.new(0, 6, 0), Vector3.new(0, -30, 0), State.RayParams)
 	return r and r.Position.Y or nil
 end
 
--- Um passo de física simplificada do carro
 local function stepDrive(dt)
 	local throttle, steerIn, hand = readInput()
 	local limitA = math.clamp(State.Limit / CONFIG.MaxRPM, 0.2, 1)
 	local maxSpeed = CONFIG.TopSpeedMin + CONFIG.TopSpeedRange * limitA
 	local v = State.Speed
 
-	-- Aceleração / travagem
 	if throttle > 0 then
 		if v < -0.5 then
 			v += 80 * dt
@@ -1049,12 +1104,10 @@ local function stepDrive(dt)
 	end
 	v = math.clamp(v, -CONFIG.ReverseSpeed, maxSpeed)
 
-	-- Direção (modelo de bicicleta)
 	local maxSteer = 0.6 - 0.35 * math.clamp(math.abs(v) / maxSpeed, 0, 1)
 	State.Steer += (steerIn * maxSteer - State.Steer) * math.min(1, dt * 8)
 	State.Yaw += v * math.tan(State.Steer) / CONFIG.WheelBase * dt
 
-	-- Movimento + colisão frontal/traseira simples
 	local base = CFrame.new(State.Pos) * CFrame.Angles(0, State.Yaw, 0)
 	local look = base.LookVector
 	local step = v * dt
@@ -1070,7 +1123,6 @@ local function stepDrive(dt)
 	State.Pos += look * step
 	State.Speed = v
 
-	-- Seguir o terreno (altura + inclinação)
 	local f = groundAt(State.Pos + look * 5)
 	local r = groundAt(State.Pos - look * 5)
 	if f or r then
@@ -1087,7 +1139,6 @@ local function stepDrive(dt)
 	end
 	State.RootCF = CFrame.new(State.Pos) * CFrame.Angles(0, State.Yaw, 0)
 
-	-- RPM e marcha (automática, 5 velocidades)
 	local s = math.abs(v)
 	local band = maxSpeed / 5
 	local g = math.min(5, math.floor(s / band) + 1)
@@ -1107,9 +1158,15 @@ local function stepDrive(dt)
 	else
 		State.Gear = tostring(g)
 	end
+
+	-- Luzes de travagem
+	local braking = (throttle < 0 and v > 0.5) or (hand and math.abs(v) > 0.5)
+	if braking ~= State.Braking then
+		State.Braking = braking
+		refreshLights()
+	end
 end
 
--- Simulação: condução (ou rotação visual parado) + seguimento do jogador
 local function startSimulation()
 	if State.SimConn then return end
 	State.SimConn = RunService.Heartbeat:Connect(function(dt)
@@ -1123,7 +1180,7 @@ local function startSimulation()
 		local alpha = driving and (State.LiveRPM / CONFIG.MaxRPM) or (State.RPM / CONFIG.MaxRPM)
 		if not driving then
 			if alpha <= 0 then
-				if State.Settled then return end -- já está em repouso
+				if State.Settled then return end
 				State.Settled = true
 			else
 				State.Settled = false
@@ -1151,7 +1208,6 @@ local function startSimulation()
 			if wheel.Parent and offset then
 				local cf = pose
 				if offset.Z < 0 and State.Steer ~= 0 then
-					-- rodas dianteiras viram com a direção
 					local px = offset.X < 0 and -2.75 or 2.75
 					local pivot = Vector3.new(px, 1.15, offset.Z)
 					cf = pose * CFrame.new(pivot) * CFrame.Angles(0, State.Steer, 0) * CFrame.new(-pivot)
@@ -1160,7 +1216,6 @@ local function startSimulation()
 			end
 		end
 
-		-- Mantém o jogador no banco do condutor
 		if State.Driving then
 			local c = State.Char
 			if not c or not c.hrp.Parent or c.hum.Health <= 0 then
@@ -1173,13 +1228,17 @@ local function startSimulation()
 	end)
 end
 
--- Sair do carro (definição da função declarada acima)
 exitCar = function()
 	if not State.Driving then return end
 	State.Driving = false
 	State.Speed, State.Steer, State.LiveRPM, State.Fall = 0, 0, 0, 0
 	State.Gear = "N"
 	for k in pairs(Touch) do Touch[k] = false end
+
+	if State.Braking then
+		State.Braking = false
+		refreshLights()
+	end
 
 	local c = State.Char
 	State.Char = nil
@@ -1206,7 +1265,6 @@ exitCar = function()
 	notify("🚪 Saiu do carro.", THEME.Blue)
 end
 
--- Entrar no carro
 local function enterCar()
 	if State.Driving or State.Busy or not State.Car then return end
 	local character = LocalPlayer.Character
@@ -1217,7 +1275,6 @@ local function enterCar()
 		return
 	end
 
-	-- Esconde o personagem (só localmente) para não atravessar o teto
 	local hidden = {}
 	for _, d in ipairs(character:GetDescendants()) do
 		if d:IsA("BasePart") or d:IsA("Decal") then
@@ -1246,7 +1303,6 @@ local function enterCar()
 	notify("🚗 Ao volante! W/A/S/D para conduzir.", THEME.Green)
 end
 
--- Remove o carro imediatamente e repõe o estado
 local function destroyCarImmediate()
 	if State.Driving then pcall(exitCar) end
 	if State.SimConn then
@@ -1258,16 +1314,18 @@ local function destroyCarImmediate()
 	end
 	State.Car, State.Prompt, State.RootCF = nil, nil, nil
 	State.Wheels, State.Body, State.Accent, State.LocalCF = {}, {}, {}, {}
+	State.Heads, State.Tails, State.Spots, State.Points = {}, {}, {}, {}
+	State.LightMode, State.Braking = 0, false
 	State.RPM, State.ColorIdx, State.Spin, State.Clock, State.Settled = 0, 1, 0, 0, true
 	State.Speed, State.Steer, State.Pitch, State.Limit, State.LiveRPM = 0, 0, 0, CONFIG.MaxRPM, 0
 	updateRpmUI(true)
 	updateColorUI(1, true)
+	refreshLights()
 end
 
--- Verifica se existe carro; caso contrário avisa o jogador
 local function requireCar(btn, message)
 	if State.Car and not State.Car.Parent then
-		destroyCarImmediate() -- o carro foi removido por outro meio
+		destroyCarImmediate()
 	end
 	if State.Busy then
 		notify("⏳ Aguarde a ação atual terminar...", THEME.Orange)
@@ -1281,7 +1339,14 @@ local function requireCar(btn, message)
 	return true
 end
 
--- Aplica uma cor da paleta à carroçaria (transição suave)
+-- Alterna as luzes: Desligadas > Médios > Máximos
+local function cycleLights()
+	if not State.Car or State.Busy then return end
+	State.LightMode = (State.LightMode + 1) % 3
+	refreshLights()
+	notify("💡 Luzes: " .. LIGHT_NAMES[State.LightMode], THEME.Orange)
+end
+
 local function applyColor(index)
 	local entry = CONFIG.Palette[index]
 	local accent = entry.Color:Lerp(Color3.new(0, 0, 0), 0.35)
@@ -1294,7 +1359,6 @@ local function applyColor(index)
 	updateColorUI(index, true)
 end
 
--- Cria o carro à frente do jogador
 local function spawnCar()
 	if State.Busy then
 		notify("⏳ Aguarde a ação atual terminar...", THEME.Orange)
@@ -1309,10 +1373,9 @@ local function spawnCar()
 	end
 
 	State.Busy = true
-	destroyCarImmediate() -- substitui carro existente
+	destroyCarImmediate()
 
 	local ok, err = pcall(function()
-		-- Posição à frente do jogador + deteção do chão
 		local ahead = hrp.Position + hrp.CFrame.LookVector * CONFIG.SpawnDistance
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
@@ -1325,21 +1388,22 @@ local function spawnCar()
 		local groundY = hit and hit.Position.Y or (hrp.Position.Y - 3)
 		local pos = Vector3.new(ahead.X, groundY, ahead.Z)
 
-		-- Frente do carro aponta para a direita do jogador (vê-se a lateral)
 		local rootCF = CFrame.lookAt(pos, pos + hrp.CFrame.RightVector)
 		local startCF = rootCF * CFrame.new(0, 14, 0)
 
 		local data = buildCar(startCF)
 		State.Car, State.Wheels, State.Body = data.Model, data.Wheels, data.Body
 		State.Accent, State.LocalCF = data.Accent, data.LocalCF
+		State.Heads, State.Tails = data.Heads, data.Tails
+		State.Spots, State.Points = data.Spots, data.Points
 		State.RootCF = rootCF
 		State.Pos = rootCF.Position
 		State.Yaw = select(2, rootCF:ToEulerAnglesYXZ())
 		State.Pitch = 0
 		State.Prompt = data.Prompt
 		data.Model.Parent = Workspace
+		refreshLights()
 
-		-- ProximityPrompt: entrar / sair
 		data.Prompt.Triggered:Connect(function(plr)
 			if plr ~= LocalPlayer or State.Busy then return end
 			if State.Driving then
@@ -1349,7 +1413,6 @@ local function spawnCar()
 			end
 		end)
 
-		-- Animação de queda com ressalto
 		local cfv = Instance.new("CFrameValue")
 		cfv.Value = startCF
 		local conn = cfv:GetPropertyChangedSignal("Value"):Connect(function()
@@ -1366,7 +1429,7 @@ local function spawnCar()
 		cfv:Destroy()
 		if data.Model.Parent then
 			data.Model:PivotTo(rootCF)
-			data.Prompt.Enabled = true -- só agora é possível entrar
+			data.Prompt.Enabled = true
 		end
 	end)
 
@@ -1384,7 +1447,6 @@ local function spawnCar()
 	notify("✔ Carro criado! Aproxime-se e prima E para entrar.", THEME.Green)
 end
 
--- Exclui o carro com fade-out
 local function removeCar()
 	if not requireCar(deleteBtn, "⚠ Não há carro para excluir.") then return end
 	if State.Driving then exitCar() end
@@ -1404,17 +1466,13 @@ local function removeCar()
 end
 
 ----------------------------------------------------------------
--- 10) LIGAÇÃO DOS BOTÕES
+-- LIGAÇÃO DOS BOTÕES
 ----------------------------------------------------------------
--- Botão 1: criar
 connect(createBtn.Activated, function()
 	flash(createBtn)
 	spawnCar()
 end)
 
--- Botão 2: RPM (toque/arraste na barra, 0 - 999)
---   parado   -> simulação visual de rotação
---   a conduzir -> limite de RPM (mín. 200)
 do
 	local dragging = false
 
@@ -1457,7 +1515,6 @@ do
 	end)
 end
 
--- Botão 3: cor (cicla pela paleta)
 connect(colorBtn.Activated, function()
 	if not requireCar(colorBtn) then return end
 	flash(colorBtn)
@@ -1466,19 +1523,32 @@ connect(colorBtn.Activated, function()
 	notify("🎨 Cor: " .. CONFIG.Palette[State.ColorIdx].Name, THEME.Blue)
 end)
 
--- Botão 4: excluir
+-- Botão Luzes (painel)
+connect(lightBtn.Activated, function()
+	if not requireCar(lightBtn) then return end
+	flash(lightBtn)
+	cycleLights()
+end)
+
+-- Botão Luzes (HUD) e tecla L
+connect(hudLightBtn.Activated, cycleLights)
+connect(UserInputService.InputBegan, function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.L then
+		cycleLights()
+	end
+end)
+
 connect(deleteBtn.Activated, function()
 	flash(deleteBtn)
 	removeCar()
 end)
 
--- Botão "Sair" do HUD
 connect(exitBtn.Activated, function()
 	exitCar()
 end)
 
 ----------------------------------------------------------------
--- 11) MONTAGEM FINAL E LIMPEZA
+-- MONTAGEM FINAL E LIMPEZA
 ----------------------------------------------------------------
 local mounted = false
 for _, container in ipairs(getContainers()) do
@@ -1493,10 +1563,8 @@ if not mounted then
 	return
 end
 
--- Animação de entrada do painel
 tween(uiScale, 0.5, { Scale = baseScale }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
--- Função de limpeza (chamada se o script for executado novamente)
 env.FiatUnoHubCleanup = function()
 	for _, c in ipairs(connections) do
 		pcall(function() c:Disconnect() end)
