@@ -12,18 +12,8 @@
 	   E                            -> dispara mão DIREITA   (segure para manter)
 	   F  -> equipar / guardar      T -> alterna lado selecionado no menu
 	   1-8 -> equipa a mão escolhida no lado selecionado
+	   M  -> liga/desliga som
 	 MOBILE: botões "E" e "D" na tela + menu GRABPACK no canto superior esquerdo.
-
-	 OBJETOS INTERATIVOS (o script reconhece por Atributo, Tag ou nome):
-	   "Electric"   fonte elétrica (Mão Verde carrega)
-	   "Panel"      painel/receptor de energia (recebe carga)
-	   "Spring"     bloco/plataforma que ativa a Mão Roxa
-	   "Locked"     porta travada (Mão Pressão quebra/abre)
-	   "GrabButton" botão (ClickDetector/ProximityPrompt também funcionam)
-	   "Metal"      peça metálica (Mão Magnética) - Materiais metálicos também valem
-
-	 LIMITAÇÃO: como o script é local, efeitos físicos sobre objetos só
-	 replicam para o servidor se o jogo der ownership da peça ao seu cliente.
 	=====================================================================
 ]]
 
@@ -54,36 +44,43 @@ local player = Players.LocalPlayer
 -- 2. CONFIGURAÇÃO (ajuste aqui sem mexer no resto)
 ------------------------------------------------------------------------
 local CONFIG = {
+	-- Sons
+	SoundOn = true,
+	SoundLaunch = "rbxassetid://123573488983461", -- vai (disparo)
+	SoundRetract = "rbxassetid://103751410300272", -- volta (retorno)
+	SoundVolume = 0.6,
+	KeySound = Enum.KeyCode.M,
+
 	-- Cabo / disparo
-	ProjectileSpeed = 260,    -- velocidade da mão ao ser lançada (studs/s)
-	RetractSpeed = 340,       -- velocidade de retorno
-	MinAttachTime = 0.35,     -- tempo mínimo preso (permite "toque rápido" no mobile)
+	ProjectileSpeed = 260,
+	RetractSpeed = 340,
+	MinAttachTime = 0.35,
 
 	-- Agarre (Azul / Vermelha / Omni)
-	ZipSpeed = 75,            -- velocidade ao ser puxado até uma superfície
+	ZipSpeed = 75,
 	ZipStopDistance = 5,
-	MaxPullMass = 500,        -- massa máxima de objetos que podem ser puxados
+	MaxPullMass = 500,
 	PullStrength = 6,
 	PullMaxSpeed = 70,
 
 	-- Verde (energia)
 	ChargeMax = 100,
-	ChargeRate = 60,          -- carga/s em fonte elétrica
-	TransferRate = 30,        -- carga/s gasta ao alimentar painel
-	ChargeDecay = 3,          -- carga é temporária: perde X por segundo
-	PoweredDuration = 12,     -- tempo que o painel fica "Powered" após receber energia
+	ChargeRate = 60,
+	TransferRate = 30,
+	ChargeDecay = 3,
+	PoweredDuration = 12,
 
 	-- Roxa (Spring)
-	SpringPower = 135,        -- impulso vertical (~45 studs de altura)
+	SpringPower = 135,
 	SpringSideBoost = 25,
-	SpringMaxDistance = 40,   -- distância máxima do ponto de mola ao jogador
+	SpringMaxDistance = 40,
 	SpringCooldown = 0.8,
 
 	-- Laranja (sinalizadores)
 	FlareSpeed = 110,
 	FlareCooldown = 0.7,
 	FlareLifetime = 35,
-	MaxFlares = 8,            -- limite p/ não dar lag
+	MaxFlares = 8,
 	LightRange = 48,
 
 	-- Luzes táticas (Omni)
@@ -96,12 +93,12 @@ local CONFIG = {
 	MagnetSpeed = 55,
 
 	-- Pressão (protótipo)
-	PressureHoldTime = 0.5,   -- tempo segurando antes de quebrar
+	PressureHoldTime = 0.5,
 	PressureImpulse = 70,
 	MaxBreakParts = 60,
 
 	-- Controles
-	RightClickFires = false,  -- true = botão direito dispara a mão direita (conflita com a câmera)
+	RightClickFires = false,
 	KeyLeft = Enum.KeyCode.Q,
 	KeyRight = Enum.KeyCode.E,
 	KeyToggle = Enum.KeyCode.F,
@@ -124,7 +121,6 @@ local HANDS = {
 local HANDS_BY_ID = {}
 for _, h in ipairs(HANDS) do HANDS_BY_ID[h.id] = h end
 
--- Padrões de nome usados quando o objeto não tem Atributo/Tag
 local PATTERNS = {
 	Electric = { "electric", "generator", "tesla", "battery", "spark", "fuse" },
 	Panel = { "panel", "socket", "outlet", "receiver", "powerbox", "switchbox" },
@@ -141,14 +137,13 @@ local CABLE_COLOR = Color3.fromRGB(30, 30, 34)
 ------------------------------------------------------------------------
 -- 4. UTILITÁRIOS
 ------------------------------------------------------------------------
-local conns = {} -- todas as conexões (para limpar no Destroy)
+local conns = {}
 local function connect(signal, fn)
 	local c = signal:Connect(fn)
 	table.insert(conns, c)
 	return c
 end
 
--- Cria instância já com propriedades; Parent é definido por último (mais rápido)
 local function make(class, props, parent)
 	local inst = Instance.new(class)
 	for k, v in pairs(props or {}) do inst[k] = v end
@@ -156,7 +151,6 @@ local function make(class, props, parent)
 	return inst
 end
 
--- Peça "fantasma" (sem colisão/consulta/massa) para não interferir na física
 local function newPart(props, parent)
 	local p = Instance.new("Part")
 	p.Anchored = false
@@ -180,16 +174,37 @@ end
 
 local function rnd(a, b) return a + math.random() * (b - a) end
 
--- Pasta de efeitos (projéteis, flares, luzes) - excluída dos raycasts
 local fx = make("Folder", { Name = "GrabPackFX" }, Workspace)
 
--- Orientação da mão: dedos (-Y local) apontam para "dir"
+------------------------------------------------------------------------
+-- 4.1 SONS
+------------------------------------------------------------------------
+local sounds = {}
+local function buildSounds()
+	sounds.Launch = make("Sound", {
+		Name = "GPLaunch", SoundId = CONFIG.SoundLaunch,
+		Volume = CONFIG.SoundVolume, RollOffMode = Enum.RollOffMode.Linear,
+	}, fx)
+	sounds.Retract = make("Sound", {
+		Name = "GPRetract", SoundId = CONFIG.SoundRetract,
+		Volume = CONFIG.SoundVolume, RollOffMode = Enum.RollOffMode.Linear,
+	}, fx)
+end
+
+local function playSound(name)
+	if not CONFIG.SoundOn then return end
+	local s = sounds[name]
+	if not s then return end
+	-- Toca do início mesmo se o som anterior ainda estiver rodando
+	s.TimePosition = 0
+	s:Play()
+end
+
 local function handCF(pos, dir)
 	local up = (math.abs(dir.Y) > 0.99) and Vector3.xAxis or Vector3.yAxis
 	return CFrame.lookAt(pos, pos + dir, up) * CFrame.Angles(math.rad(90), 0, 0)
 end
 
--- Procura uma "flag" (Atributo, Tag ou nome) na peça e em até 3 ancestrais
 local function findFlag(part, flag)
 	local node = part
 	for _ = 1, 4 do
@@ -213,7 +228,6 @@ local function isMetal(part)
 	return METAL_MATS[part.Material] == true or findFlag(part, "Metal") ~= nil
 end
 
--- Nunca puxa/empurra/agarra personagens (evita griefing de outros jogadores)
 local function isCharacterPart(part)
 	local m = part:FindFirstAncestorOfClass("Model")
 	return m ~= nil and m:FindFirstChildOfClass("Humanoid") ~= nil
@@ -234,7 +248,7 @@ local pack = {
 
 local function newSide(key, handId)
 	return {
-		key = key, handId = handId, state = "idle", -- idle | flying | attached | retracting
+		key = key, handId = handId, state = "idle",
 		dir = Vector3.zAxis, held = false, mode = nil, hit = nil,
 		lastFlare = 0, releaseAt = 0, autoRelease = false,
 		seed = math.random() * 10,
@@ -245,11 +259,10 @@ local sideList = { sides.Left, sides.Right }
 
 local ui = { dirty = true, selectedSide = "Left", bars = {}, fire = {}, handButtons = {} }
 
-local poweredMap = {}   -- [instância] = os.clock() de expiração do estado "Powered"
-local flares = {}       -- sinalizadores ativos
-local tacticalLights = {} -- luzes táticas ativas
+local poweredMap = {}
+local flares = {}
+local tacticalLights = {}
 
--- Declarações antecipadas
 local startRetract, cleanupSide, launchFlare, attachTo
 
 ------------------------------------------------------------------------
@@ -265,7 +278,6 @@ local function refreshFilter()
 	rayParams.FilterDescendantsInstances = list
 end
 
--- Raycast que ignora peças invisíveis e sem colisão (gatilhos)
 local function castRay(origin, vec)
 	local base = rayParams.FilterDescendantsInstances
 	local filter = base
@@ -287,7 +299,6 @@ local function castRay(origin, vec)
 	return result
 end
 
--- Ponto mirado: mouse no PC, centro da tela no mobile
 local function getAimPoint(maxDist)
 	local camera = Workspace.CurrentCamera
 	local vp
@@ -304,7 +315,6 @@ end
 ------------------------------------------------------------------------
 -- 7. EFEITOS VISUAIS
 ------------------------------------------------------------------------
--- Onda de choque rápida (acerto/disparo)
 local function pulseRing(pos, color)
 	local r = newPart({
 		Shape = Enum.PartType.Ball, Size = Vector3.new(1, 1, 1), Color = color,
@@ -315,7 +325,6 @@ local function pulseRing(pos, color)
 	Debris:AddItem(r, 0.4)
 end
 
--- Raios elétricos: feixes (Beams) curtos com pontas aleatórias, reaproveitados
 local function makeBolts(part, color, count)
 	local center = make("Attachment", {}, part)
 	local bolts = { items = {} }
@@ -349,7 +358,6 @@ local function jitterBolts(bolts, enabled)
 	end
 end
 
--- Luz tática temporária (Omni). Limitada para não pesar.
 local function spawnTacticalLight(pos, color, life)
 	local p = newPart({
 		Shape = Enum.PartType.Ball, Size = Vector3.new(0.5, 0.5, 0.5), Color = color,
@@ -370,7 +378,6 @@ end
 ------------------------------------------------------------------------
 -- 8. INTERAÇÃO COM O MUNDO
 ------------------------------------------------------------------------
--- Aciona botões: ClickDetector, ProximityPrompt e atributo "GrabButton"
 local function triggerInteractives(part)
 	local node = part
 	for _ = 1, 3 do
@@ -391,7 +398,6 @@ local function triggerInteractives(part)
 	end
 end
 
--- Simula toque do personagem no painel (jogos que usam .Touched)
 local function triggerTouch(inst)
 	if not firetouchinterest or not pack.hrp then return end
 	local bp = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
@@ -406,7 +412,6 @@ local function triggerTouch(inst)
 	end)
 end
 
--- Marca painel como energizado (Atributo "Powered") por PoweredDuration segundos
 local function markPowered(inst)
 	if not poweredMap[inst] then
 		inst:SetAttribute("Powered", true)
@@ -426,9 +431,8 @@ local function expirePowered(now)
 end
 
 ------------------------------------------------------------------------
--- 9. COMPORTAMENTO DE CADA MÃO (ao acertar um alvo)
+-- 9. COMPORTAMENTO DE CADA MÃO
 ------------------------------------------------------------------------
--- Azul / Vermelha: aciona botões, puxa objetos soltos ou se puxa até a superfície
 local function startGrab(side)
 	local hit = side.hit
 	triggerInteractives(hit.part)
@@ -441,7 +445,6 @@ local function startGrab(side)
 	end
 end
 
--- Verde: carrega em fontes elétricas e transfere para painéis
 local function startElectric(side)
 	local hit = side.hit
 	local panel = findFlag(hit.part, "Panel")
@@ -455,7 +458,6 @@ local function startElectric(side)
 	end
 end
 
--- Roxa: impulso de mola no chão ou em blocos marcados
 local function startSpring(side)
 	local hit = side.hit
 	local hrp = pack.hrp
@@ -474,7 +476,6 @@ local function startSpring(side)
 	pulseRing(hit.pos, HANDS_BY_ID.Purple.color)
 end
 
--- Omni: agarre + condução elétrica + luz tática no mesmo disparo
 local function startOmni(side)
 	startGrab(side)
 	local hit = side.hit
@@ -486,7 +487,6 @@ local function startOmni(side)
 	spawnTacticalLight(hit.pos + hit.normal * 1.2, Color3.fromRGB(255, 255, 255), CONFIG.TacticalLightLifetime)
 end
 
--- Magnética: puxa peças metálicas soltas; metal fixo puxa o jogador
 local function startMagnet(side)
 	local hit = side.hit
 	if isCharacterPart(hit.part) then return end
@@ -516,7 +516,6 @@ local function startMagnet(side)
 	end
 end
 
--- Pressão: segura um instante e então quebra/abre porta travada ou empurra objeto
 local function startPressure(side)
 	side.mode = "pressure"
 	side.t0 = os.clock()
@@ -557,7 +556,6 @@ local function doPressure(side)
 	pulseRing(hit.pos, HANDS_BY_ID.Pressure.color)
 end
 
--- Laranja: dispara sinalizador físico que ilumina o ambiente
 function launchFlare(side, dir)
 	side.lastFlare = os.clock()
 	local hand = HANDS_BY_ID[side.handId]
@@ -595,7 +593,7 @@ function launchFlare(side, dir)
 end
 
 ------------------------------------------------------------------------
--- 10. CICLO DE VIDA DO DISPARO (voar -> prender -> recolher)
+-- 10. CICLO DE VIDA DO DISPARO
 ------------------------------------------------------------------------
 local function setGloveVisible(side, vis)
 	if not side.glove then return end
@@ -651,9 +649,9 @@ function startRetract(side)
 	if side.state == "idle" or side.state == "retracting" then return end
 	side.state = "retracting"
 	side.mode, side.pullObj, side.magParts, side.hit, side.omniPanel = nil, nil, nil, nil, nil
+	playSound("Retract")
 end
 
--- Volta ao estado ocioso (mão na luva, cabo recolhido)
 function cleanupSide(side)
 	if side.proj then side.proj:Destroy() end
 	side.proj, side.projRing, side.projAtt, side.projBolts = nil, nil, nil, nil
@@ -683,6 +681,7 @@ local function pressFire(side)
 	side.state = "flying"
 	side.mode, side.hit = nil, nil
 	spawnProjectile(side, hand, origin, dir)
+	playSound("Launch")
 end
 
 local function releaseFire(side)
@@ -690,9 +689,8 @@ local function releaseFire(side)
 end
 
 ------------------------------------------------------------------------
--- 11. LOOP PRINCIPAL (um único Heartbeat para tudo)
+-- 11. LOOP PRINCIPAL
 ------------------------------------------------------------------------
--- Cabo flexível: curvatura animada; fica frouxo perto e esticado no limite
 local function updateCable(side, now)
 	local hand = HANDS_BY_ID[side.handId]
 	local cable = side.cable
@@ -709,7 +707,6 @@ local function updateCable(side, now)
 	end
 	cable.CurveSize0 = amp * sway
 	cable.CurveSize1 = -amp * sway
-	-- cabo "energizado" nas mãos elétricas
 	local lit = side.mode == "charge" or side.mode == "transfer" or side.omniPanel ~= nil
 	if lit ~= side.cableLit then
 		side.cableLit = lit
@@ -723,7 +720,6 @@ local function updateSide(side, dt, now, zips)
 	local st = side.state
 
 	if st == "idle" then
-		-- Laranja dispara automaticamente enquanto o botão estiver segurado
 		if side.held and hand.kind == "flare" and now - side.lastFlare >= CONFIG.FlareCooldown then
 			local origin = side.glove.Position
 			local v = getAimPoint(150) - origin
@@ -736,7 +732,7 @@ local function updateSide(side, dt, now, zips)
 		local pos = proj.Position
 		local mv = side.dir * CONFIG.ProjectileSpeed * dt
 		if (pos + mv - side.port.WorldPosition).Magnitude > hand.range then
-			startRetract(side) -- errou: alcance máximo do cabo
+			startRetract(side)
 			return
 		end
 		local res = castRay(pos, mv + side.dir * 0.6)
@@ -751,7 +747,6 @@ local function updateSide(side, dt, now, zips)
 		local hit = side.hit
 		local part = hit and hit.part
 		if not (part and part.Parent and side.proj and side.proj.Parent) then startRetract(side) return end
-		-- a mão acompanha a peça em que está presa
 		local world = part.CFrame:PointToWorldSpace(hit.lp)
 		side.proj.CFrame = handCF(world, side.dir)
 		if (world - side.port.WorldPosition).Magnitude > hand.range * 1.2 then startRetract(side) return end
@@ -804,7 +799,6 @@ local function updateSide(side, dt, now, zips)
 		elseif mode == "pressure" then
 			if not side.pressDone and now - side.t0 >= CONFIG.PressureHoldTime then doPressure(side) end
 		end
-		-- Omni mantém o painel energizado enquanto preso
 		if side.omniPanel then
 			if side.omniPanel.Parent then markPowered(side.omniPanel) else side.omniPanel = nil end
 		end
@@ -825,7 +819,6 @@ local function updateSide(side, dt, now, zips)
 	updateCable(side, now)
 end
 
--- Soma os pontos de "zip" e puxa o jogador com um único LinearVelocity
 local function applyZip(zips)
 	local lv = pack.lv
 	if not lv then return end
@@ -846,7 +839,6 @@ local function applyZip(zips)
 	lv.VectorVelocity = (v.Magnitude > 0.01) and (v.Unit * CONFIG.ZipSpeed) or Vector3.zero
 end
 
--- Efeitos que não precisam rodar todo frame (~16x por segundo)
 local function updateVisuals(now)
 	for _, side in ipairs(sideList) do
 		local hand = HANDS_BY_ID[side.handId]
@@ -861,7 +853,7 @@ local function updateVisuals(now)
 		jitterBolts(side.gloveBolts, gloveOn)
 		jitterBolts(side.projBolts, projOn)
 		side.gloveLight.Brightness = (hand.kind == "electric") and (pack.charge / CONFIG.ChargeMax) * 2.5 or 0
-		if hand.kind == "omni" then -- arco-íris da Omni
+		if hand.kind == "omni" then
 			local c = Color3.fromHSV((now * 0.35) % 1, 0.65, 1)
 			side.ring.Color = c
 			if side.projRing then side.projRing.Color = c end
@@ -881,7 +873,6 @@ local function step(dt)
 	for _, side in ipairs(sideList) do updateSide(side, dt, now, zips) end
 	applyZip(zips)
 
-	-- carga verde é temporária: decai quando não está carregando
 	if not pack.charging and pack.charge > 0 then
 		pack.charge = math.max(0, pack.charge - CONFIG.ChargeDecay * dt)
 	end
@@ -893,7 +884,7 @@ local function step(dt)
 end
 
 ------------------------------------------------------------------------
--- 12. CONSTRUÇÃO PROCEDURAL 3D (mochila, cabos, luvas)
+-- 12. CONSTRUÇÃO PROCEDURAL 3D
 ------------------------------------------------------------------------
 local function buildHandModel(color)
 	local glove = newPart({
@@ -961,14 +952,13 @@ local function equipPack()
 	local model = make("Model", { Name = "GrabPackModel" }, rig.char)
 	pack.char, pack.hrp, pack.hum, pack.model = rig.char, rig.hrp, rig.hum, model
 
-	-- 12.1 Mochila traseira ------------------------------------------------
 	local body = newPart({
 		Name = "GPBody", Size = Vector3.new(1.8, 2.1, 0.8), Color = Color3.fromRGB(48, 50, 56),
 		Material = Enum.Material.Metal, CFrame = rig.torso.CFrame * CFrame.new(0, 0, 0.92),
 	}, model)
 	weld(rig.torso, body, CFrame.new(0, 0, 0.92))
 
-	for _, x in ipairs({ -0.5, 0.5 }) do -- dois tanques cilíndricos verticais
+	for _, x in ipairs({ -0.5, 0.5 }) do
 		local tank = newPart({
 			Name = "GPTank", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.6, 0.55, 0.55),
 			Color = Color3.fromRGB(80, 84, 94), Material = Enum.Material.Metal,
@@ -976,17 +966,14 @@ local function equipPack()
 		weld(body, tank, CFrame.new(x, -0.05, 0.55) * CFrame.Angles(0, 0, math.rad(90)))
 	end
 
-	-- luzes de status (mostram a cor da mão equipada em cada lado)
 	local statusL = newPart({ Name = "GPStatusL", Size = Vector3.new(0.35, 0.35, 0.12), Material = Enum.Material.Neon }, model)
 	weld(body, statusL, CFrame.new(-0.6, 0.85, -0.42))
 	local statusR = newPart({ Name = "GPStatusR", Size = Vector3.new(0.35, 0.35, 0.12), Material = Enum.Material.Neon }, model)
 	weld(body, statusR, CFrame.new(0.6, 0.85, -0.42))
 
-	-- portas de saída dos cabos
 	local portL = make("Attachment", { Name = "PortL", Position = Vector3.new(-0.9, 0.55, 0) }, body)
 	local portR = make("Attachment", { Name = "PortR", Position = Vector3.new(0.9, 0.55, 0) }, body)
 
-	-- 12.2 Luvas + cabos flexíveis -----------------------------------------
 	local offset = rig.r15 and CFrame.new(0, -0.2, 0) or CFrame.new(0, -0.85, 0)
 	for _, side in ipairs(sideList) do
 		local isLeft = side.key == "Left"
@@ -1008,11 +995,10 @@ local function equipPack()
 			Segments = 12, FaceCamera = true, Color = ColorSequence.new(CABLE_COLOR),
 		}, model)
 		side.state, side.held = "idle", false
-		pack.equipped = true -- necessário para applyHandVisual
+		pack.equipped = true
 		applyHandVisual(side)
 	end
 
-	-- LinearVelocity compartilhado para o "zip" do jogador (desligado por padrão)
 	local zipAtt = make("Attachment", { Name = "GPZipAtt" }, rig.hrp)
 	pack.lv = make("LinearVelocity", {
 		Attachment0 = zipAtt, MaxForce = 1e6, VelocityConstraintMode = Enum.VelocityConstraintMode.Vector,
@@ -1035,8 +1021,13 @@ local function setHand(sideKey, id)
 end
 
 ------------------------------------------------------------------------
--- 13. INTERFACE (HUD) - mobile e PC
+-- 13. INTERFACE (HUD)
 ------------------------------------------------------------------------
+local function toggleSound()
+	CONFIG.SoundOn = not CONFIG.SoundOn
+	ui.dirty = true
+end
+
 local function buildGui()
 	local gui = make("ScreenGui", {
 		Name = "GrabPackHUD", ResetOnSpawn = false, IgnoreGuiInset = true,
@@ -1056,15 +1047,13 @@ local function buildGui()
 		corner(b, 8)
 	end
 
-	-- Botão que abre/fecha o menu
 	local toggle = make("TextButton", {
 		Name = "MenuToggle", Size = UDim2.fromOffset(120, 34), Position = UDim2.fromOffset(10, 56), Text = "GRABPACK ▾",
 	}, gui)
 	styleBtn(toggle, Color3.fromRGB(30, 34, 44), 13)
 
-	-- Painel de seleção de mãos
 	local menu = make("Frame", {
-		Name = "Menu", Visible = false, Size = UDim2.fromOffset(236, 372), Position = UDim2.fromOffset(10, 96),
+		Name = "Menu", Visible = false, Size = UDim2.fromOffset(236, 412), Position = UDim2.fromOffset(10, 96),
 		BackgroundColor3 = Color3.fromRGB(22, 24, 30), BackgroundTransparency = 0.12, BorderSizePixel = 0,
 	}, gui)
 	corner(menu, 10)
@@ -1076,18 +1065,21 @@ local function buildGui()
 		if pack.equipped then unequipPack(false) else task.spawn(equipPack) end
 	end)
 
-	-- Escolha do lado que receberá a mão selecionada
+	-- Botão SOM ON/OFF
+	ui.soundBtn = make("TextButton", { Size = UDim2.fromOffset(220, 30), Position = UDim2.fromOffset(8, 48), Text = "" }, menu)
+	styleBtn(ui.soundBtn, Color3.fromRGB(45, 49, 62), 12)
+	connect(ui.soundBtn.MouseButton1Click, toggleSound)
+
 	ui.sideBtns = {}
 	for i, key in ipairs({ "Left", "Right" }) do
-		local b = make("TextButton", { Size = UDim2.fromOffset(220, 30), Position = UDim2.fromOffset(8, 48 + (i - 1) * 34), Text = "" }, menu)
+		local b = make("TextButton", { Size = UDim2.fromOffset(220, 30), Position = UDim2.fromOffset(8, 84 + (i - 1) * 34), Text = "" }, menu)
 		styleBtn(b, Color3.fromRGB(45, 49, 62), 12)
 		make("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, b)
 		connect(b.MouseButton1Click, function() ui.selectedSide = key; ui.dirty = true end)
 		ui.sideBtns[key] = b
 	end
 
-	-- Grade com as 8 mãos
-	local grid = make("Frame", { Position = UDim2.fromOffset(8, 120), Size = UDim2.fromOffset(220, 200), BackgroundTransparency = 1 }, menu)
+	local grid = make("Frame", { Position = UDim2.fromOffset(8, 156), Size = UDim2.fromOffset(220, 200), BackgroundTransparency = 1 }, menu)
 	make("UIGridLayout", { CellSize = UDim2.fromOffset(106, 40), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder }, grid)
 	for i, h in ipairs(HANDS) do
 		local b = make("TextButton", { Text = i .. ". " .. h.name, LayoutOrder = i }, grid)
@@ -1097,12 +1089,11 @@ local function buildGui()
 	end
 
 	make("TextLabel", {
-		Position = UDim2.fromOffset(8, 330), Size = UDim2.fromOffset(220, 36), BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(8, 366), Size = UDim2.fromOffset(220, 36), BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = Color3.fromRGB(190, 195, 210), TextWrapped = true,
-		Text = "Mouse/Q = esquerda • E = direita • F equipar • T lado • 1-8 mãos",
+		Text = "Mouse/Q = esquerda • E = direita • F equipar • T lado • 1-8 mãos • M som",
 	}, menu)
 
-	-- Botões de disparo (hold): bons para toque e mouse
 	local function fireButton(side, x, label)
 		local b = make("TextButton", {
 			Name = "Fire" .. side.key, Size = UDim2.fromOffset(72, 72), AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1119,7 +1110,6 @@ local function buildGui()
 	fireButton(sides.Left, -200, "E")
 	fireButton(sides.Right, -110, "D")
 
-	-- Barras: alcance do cabo (E/D) e carga da Mão Verde
 	local barsFrame = make("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 44), Size = UDim2.fromOffset(330, 40), BackgroundTransparency = 1,
 	}, gui)
@@ -1143,11 +1133,13 @@ local function buildGui()
 	makeBar("Right", 0.68, HANDS_BY_ID.Red.color, "CABO D")
 end
 
--- Atualiza textos, cores e barras (chamado ~14x/s ou quando algo muda)
 function ui.update()
 	if not ui.gui then return end
 	ui.equipBtn.Text = pack.equipped and "GUARDAR" or "EQUIPAR"
 	ui.equipBtn.BackgroundColor3 = pack.equipped and Color3.fromRGB(150, 55, 55) or Color3.fromRGB(40, 140, 80)
+
+	ui.soundBtn.Text = CONFIG.SoundOn and "SOM: LIGADO" or "SOM: DESLIGADO"
+	ui.soundBtn.BackgroundColor3 = CONFIG.SoundOn and Color3.fromRGB(45, 110, 170) or Color3.fromRGB(70, 70, 78)
 
 	for _, side in ipairs(sideList) do
 		local hand = HANDS_BY_ID[side.handId]
@@ -1196,6 +1188,8 @@ local function bindInput()
 		elseif kc == CONFIG.KeySide then
 			ui.selectedSide = (ui.selectedSide == "Left") and "Right" or "Left"
 			ui.dirty = true
+		elseif kc == CONFIG.KeySound then
+			toggleSound()
 		else
 			for i, k in ipairs(NUM_KEYS) do
 				if kc == k then setHand(ui.selectedSide, HANDS[i].id) break end
@@ -1224,10 +1218,10 @@ local function destroyAll()
 	env.GrabPackDefinitivo = nil
 end
 
+buildSounds()
 buildGui()
 bindInput()
 
--- Loop único: física/cabos + HUD (com pcall para nunca derrubar o script)
 local hudAcc = 0
 connect(RunService.Heartbeat, function(dt)
 	local ok, err = pcall(step, dt)
@@ -1243,20 +1237,19 @@ connect(RunService.Heartbeat, function(dt)
 	end
 end)
 
--- Ao renascer: limpa o estado antigo e reequipa se o jogador queria a mochila
 connect(player.CharacterAdded, function()
 	unequipPack(true)
 	refreshFilter()
 	if pack.wanted then task.spawn(equipPack) end
 end)
 
--- API pública (útil para outros scripts / console do executor)
 env.GrabPackDefinitivo = {
 	Destroy = destroyAll,
 	Equip = function() task.spawn(equipPack) end,
 	Unequip = function() unequipPack(false) end,
 	SetHand = setHand,
 	Config = CONFIG,
+	ToggleSound = toggleSound,
 }
 
-task.spawn(equipPack) -- equipa automaticamente ao executar
+task.spawn(equipPack)
