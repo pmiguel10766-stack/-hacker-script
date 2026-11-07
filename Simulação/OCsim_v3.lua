@@ -545,9 +545,30 @@ local CATALOG = {
 	{"Editor de texto", "roblox_editor", "Abre o editor do Roblox com o comando edit. Ja instalado."},
 	{"Geolyzer", "geolyzer", "Escaneia a dureza dos blocos. Ainda nao emulado."},
 	{"Redstone I/O", "redstone", "Le e emite sinais de redstone. Ainda nao emulado."},
+	{"Verificador de codigo (scan)", "antivirus", "Aponta padroes suspeitos em arquivos. Comando scan. Ja instalado."},
+	{"Gravador (pasta Delta)", "workspace", "Salva arquivos em Delta/Workspace/OpenComputers. Comando save. Ja instalado."},
+	{"Relogio (Timer)", "timer", "Conta tempo para os programas. Ainda nao emulado."},
+	{"Bateria (Capacitor)", "capacitor", "Guarda energia para o computador. Ainda nao emulada."},
+	{"Gerador de energia", "generator", "Gera energia para os blocos. Ainda nao emulado."},
+	{"Impressora 3D", "printer3d", "Imprime blocos com cores. Ainda nao emulada."},
+	{"Robo", "robot", "Robo que se move e age no mundo. Ainda nao emulado."},
+	{"Rack de Servidores", "rack", "Comporta ate 4 servidores. Ainda nao emulado."},
+	{"Projetor de hologramas", "hologram", "Projeta hologramas 48x32x48. Ainda nao emulado."},
+	{"Conversor de energia", "powerconverter", "Converte energia de outros mods. Ainda nao emulado."},
+	{"Distribuidor de energia", "powerdistributor", "Separa redes de energia. Ainda nao emulado."},
+	{"Alternar (Switch)", "switch", "Liga redes diferentes so com mensagens. Ainda nao emulado."},
+	{"Ponto de acesso", "accesspoint", "Rede sem fio. Ainda nao emulado."},
+	{"Cabo", "cable", "Liga blocos de forma barata. Ainda nao emulado."},
+	{"Unidade de disco (floppy)", "disk_drive", "Le e grava disquetes. Toque para instalar."},
+	{"Desmontador", "disassembler", "Desmonta itens e blocos. Ainda nao emulado."},
+	{"Adaptador", "adapter", "Muda o LED e mostra texto no gabinete. Toque para instalar."},
+	{"Montador de robos", "assembler", "Monta robos a partir das pecas. Ainda nao emulado."},
+	{"Carregador", "charger", "Carrega a energia dos robos. Ainda nao emulado."},
+	{"Disquete (floppy)", "floppy", "Toque para criar um disquete e colocar na unidade."},
 }
 local selectedItem = nil
 local diskCount = 2
+local userDisks = {} -- HDDs criados pelo Item (os nativos nao podem ser excluidos)
 
 local itemPanel = mk("Frame", {
 	Size = UDim2.new(0.96, 0, 0, 300), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10),
@@ -611,6 +632,12 @@ refreshItems = function()
 			selectedItem = i
 			if ctype == "filesystem" then
 				hddOpen()
+			elseif ctype == "disk_drive" then
+				installDrive(name)
+			elseif ctype == "adapter" then
+				installAdapter(name)
+			elseif ctype == "floppy" then
+				makeFloppy()
 			elseif isPresent(ctype) then
 				itemInfo.Text = name .. " ja esta instalado. Use component.list() para ver."
 			else
@@ -2259,6 +2286,7 @@ local function hddCreate(label, initSrc, restricted)
 	end
 	diskCount += 1
 	local addr = addDisk((restricted and "RESTRITO" or "HDD") .. diskCount, false, restricted)
+	table.insert(userDisks, addr)
 	seed(disks[addr], "/readme.txt", "Disco criado pelo Item (" .. label .. ").\n")
 	seed(disks[addr], "/init.lua", initSrc)
 	hddClose()
@@ -2303,5 +2331,130 @@ hbOK.MouseButton1Click:Connect(function()
 	setWarn(false)
 end)
 hbCancel.MouseButton1Click:Connect(hddClose)
+
+
+------------------------------------------------ EXCLUIR HDD (so os criados pelo Item, desligado, com confirmacao)
+local pendingDel = false
+local itemDel = styled("TextButton", {
+	Position = UDim2.new(1, -212, 1, -36), Size = UDim2.fromOffset(70, 30), Text = "Excluir HDD",
+	Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = T.text, BackgroundColor3 = T.bad, BorderSizePixel = 0, ZIndex = 31,
+}, itemPanel)
+itemInfo.Size = UDim2.new(1, -290, 0, 30)
+itemDel.MouseButton1Click:Connect(function()
+	if M.state ~= "off" then
+		pendingDel = false
+		itemInfo.Text = "Desligue o computador antes de excluir um disco."
+		return
+	end
+	if #userDisks == 0 then
+		pendingDel = false
+		itemInfo.Text = "Nenhum HDD criado pelo Item para excluir."
+		return
+	end
+	if not pendingDel then
+		pendingDel = true
+		itemInfo.Text = "Toque em Excluir HDD de novo para confirmar (o ultimo HDD criado)."
+		return
+	end
+	pendingDel = false
+	local addr = table.remove(userDisks)
+	for i, c in ipairs(comps) do
+		if c.addr == addr then table.remove(comps, i) break end
+	end
+	byAddr[addr] = nil
+	disks[addr] = nil
+	itemInfo.Text = "HDD excluido (" .. addr:sub(1, 8) .. ")."
+	refreshItems()
+end)
+
+
+------------------------------------------------ UNIDADE DE DISCO + DISQUETE
+local driveLabel = "Unidade de disco"
+local driveFloppy = nil   -- endereco do disquete que esta dentro da unidade
+local lastEjected = nil   -- ultimo disquete ejetado (pode ser colocado de volta)
+local floppyComp = {}     -- addr -> registro do componente, guardado enquanto esta ejetado
+local floppyCount = 0
+
+local function removeComp(addr)
+	for i, c in ipairs(comps) do
+		if c.addr == addr then
+			table.remove(comps, i)
+			byAddr[addr] = nil
+			return c
+		end
+	end
+end
+local function restoreComp(c)
+	table.insert(comps, c)
+	byAddr[c.addr] = c
+end
+
+local driveM = {
+	isEmpty = function() return driveFloppy == nil end,
+	getLabel = function() return driveLabel end,
+	setLabel = function(l) driveLabel = tostring(l) return driveLabel end,
+	media = function() return driveFloppy end,
+	eject = function()
+		if not driveFloppy then return false, "unidade vazia" end
+		local c = removeComp(driveFloppy)
+		if c then floppyComp[driveFloppy] = c end
+		lastEjected, driveFloppy = driveFloppy, nil
+		return true
+	end,
+	insert = function()
+		if driveFloppy then return false, "ja tem disquete" end
+		local c = lastEjected and floppyComp[lastEjected]
+		if not c then return false, "nenhum disquete para inserir" end
+		if #comps >= CPU_MAX_COMPONENTS then return false, "limite de componentes" end
+		restoreComp(c)
+		driveFloppy, lastEjected = lastEjected, nil
+		return true
+	end,
+}
+
+local adapterLbl, adapterBB = nil, nil
+local adapterM = {
+	getName = function() return "oc_sim_adapter" end,
+	setLed = function(c)
+		local v = math.floor(tonumber(c) or 0) % 0x1000000
+		setLed(Color3.fromRGB(math.floor(v / 65536) % 256, math.floor(v / 256) % 256, v % 256))
+		return true
+	end,
+	say = function(text)
+		if not adapterBB then
+			adapterBB = mk("BillboardGui", {Size = UDim2.fromOffset(240, 40), StudsOffset = Vector3.new(0, 3, 0), AlwaysOnTop = true}, case)
+			adapterLbl = mk("TextLabel", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.3, BackgroundColor3 = Color3.new(0, 0, 0),
+				Font = Enum.Font.Code, TextSize = 13, TextColor3 = T.text, TextWrapped = true}, adapterBB)
+		end
+		adapterLbl.Text = tostring(text):sub(1, 80)
+		return true
+	end,
+	clear = function()
+		if adapterBB then adapterBB:Destroy() adapterBB, adapterLbl = nil, nil end
+		return true
+	end,
+}
+
+function installDrive(name)
+	if isPresent("disk_drive") then itemInfo.Text = name .. " ja esta instalada." return end
+	local ok, err = pcall(addComp, "disk_drive", driveM)
+	itemInfo.Text = ok and (name .. " instalada no computador.") or tostring(err)
+end
+
+function installAdapter(name)
+	if isPresent("adapter") then itemInfo.Text = name .. " ja esta instalado." return end
+	local ok, err = pcall(addComp, "adapter", adapterM)
+	itemInfo.Text = ok and (name .. " instalado. Use component.adapter.say('oi').") or tostring(err)
+end
+
+function makeFloppy()
+	if not isPresent("disk_drive") then itemInfo.Text = "Instale a Unidade de disco primeiro." return end
+	if driveFloppy then itemInfo.Text = "A unidade ja tem disquete. Ejete antes." return end
+	floppyCount += 1
+	local ok, addr = pcall(addDisk, "FLOPPY" .. floppyCount, false, false)
+	if not ok then itemInfo.Text = tostring(addr) return end
+	driveFloppy = addr
+	itemInfo.Text = "Disquete FLOPPY" .. floppyCount .. " colocado na unidade."
+end
 
 print("[OC Sim v3] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
