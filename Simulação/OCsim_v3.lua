@@ -634,6 +634,7 @@ local scrC = addComp("screen", {
 	setTouchModeInverted = function() end, isTouchModeInverted = function() return false end,
 })
 scrAddr = scrC.addr
+do
 local UIS = game:GetService("UserInputService")
 local function screenToCell(sx, sy)
 	local cam = workspace.CurrentCamera
@@ -732,6 +733,7 @@ ex.OCSimInput = UIS.InputBegan:Connect(function(input, gp)
 	if not col then return end
 	pushSignal("touch", scrC.addr, col, row, 0, "jogador")
 end)
+end
 local kbC = addComp("keyboard", {})
 KBS[1] = kbC.addr
 local tmpAddr = addDisk("tmpfs", true)
@@ -776,6 +778,7 @@ addComp("internet", {
 		}
 	end,
 })
+do
 local SAVE_DIR = "OpenComputers"
 addComp("workspace", {
 	write = function(name, data)
@@ -866,6 +869,7 @@ eSave.MouseButton1Click:Connect(function()
 	end
 end)
 eCancel.MouseButton1Click:Connect(function() closeEditor(false) end)
+end
 local function pullFor(co) return co end
 local function makeEnv()
 	local rawResume, rawYield, rawStatus, rawCreate = coroutine.resume, coroutine.yield, coroutine.status, coroutine.create
@@ -1151,6 +1155,7 @@ local function step()
 		if coroutine.status(M.co) == "dead" then crash("computer halted (o /init.lua terminou)") return end
 	end
 end
+do
 local KEYCODE = {[" "] = 57, ["-"] = 12, ["="] = 13, ["["] = 26, ["]"] = 27, [";"] = 39, ["'"] = 40, [","] = 51, ["."] = 52, ["/"] = 53, ["\\"] = 43, ["`"] = 41}
 for _, r in ipairs({{"1234567890", 2}, {"qwertyuiop", 16}, {"asdfghjkl", 30}, {"zxcvbnm", 44}}) do
 	for i = 1, #r[1] do KEYCODE[r[1]:sub(i, i)] = r[2] + i - 1 end
@@ -1247,6 +1252,7 @@ ex.OCSimConn = RunService.Heartbeat:Connect(function(dt)
 	acc += dt
 	if acc >= 0.05 then acc = 0 flush() end
 end)
+end
 seed(dA, "/init.lua", 
 [==[
 -- OpenOS-Lite 2.0  (/init.lua do disco 1)
@@ -2277,6 +2283,7 @@ while true do
 end
 ]==])
 seed(dB, "/readme.txt", "Segundo disco com outro /init.lua.\n")
+do
 local hdd = mk("Frame", {Size = UDim2.new(0.8, 0, 0, 220), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0),
 	BackgroundColor3 = T.panel, Visible = false, ZIndex = 40, BorderSizePixel = 0}, gui)
 mk("UISizeConstraint", {MaxSize = Vector2.new(360, 220)}, hdd)
@@ -2450,6 +2457,7 @@ makeFloppy = function()
 	if not ok then itemInfo.Text = tostring(addr) return end
 	driveFloppy = addr
 	itemInfo.Text = "Disquete FLOPPY" .. floppyCount .. " colocado na unidade."
+end
 end
 local _, dGui = addDisk("GUIOS")
 seed(dGui, "/init.lua", 
@@ -2654,4 +2662,4 @@ while true do
 	end
 end
 ]==])
-print("[OC Sim v3] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
+print("[OC Sim v4] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
