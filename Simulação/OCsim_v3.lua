@@ -1,5 +1,3 @@
--- OpenComputers Sim v3 (client only) | BIOS /init.lua + multi-disco + API real do OC
--- Rode no Delta Executor (precisa de loadstring).
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
@@ -7,16 +5,13 @@ local TextService = game:GetService("TextService")
 local player = Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
 local hrp = char:WaitForChild("HumanoidRootPart")
-
 local ex = (getgenv and getgenv()) or _G
 if ex.OCSimStop then pcall(ex.OCSimStop) end
-
 local TOTAL_MEM = 2097152
 local T = {
 	panel = Color3.fromRGB(24, 26, 38), btn = Color3.fromRGB(44, 48, 68), accent = Color3.fromRGB(88, 166, 255),
 	ok = Color3.fromRGB(70, 200, 110), bad = Color3.fromRGB(225, 80, 80), text = Color3.fromRGB(235, 238, 245),
 }
-
 local function guiParent()
 	local ok, h = pcall(function() return gethui() end)
 	if ok and typeof(h) == "Instance" then return h end
@@ -24,7 +19,6 @@ local function guiParent()
 end
 local old = workspace:FindFirstChild("OC_Sim") if old then old:Destroy() end
 local oldg = guiParent():FindFirstChild("OC_SimGui") if oldg then oldg:Destroy() end
-
 local function mk(class, props, parent)
 	local o = Instance.new(class)
 	for k, v in pairs(props) do o[k] = v end
@@ -32,15 +26,12 @@ local function mk(class, props, parent)
 	return o
 end
 local function guid() return HttpService:GenerateGUID(false):lower() end
-
------------------------------------------------- MUNDO
 local model = mk("Model", {Name = "OC_Sim"}, workspace)
 local groundY = hrp.Position.Y - 3
 local lv, rv = hrp.CFrame.LookVector, hrp.CFrame.RightVector
 local flat = Vector3.new(lv.X, 0, lv.Z).Unit
 local rightV = Vector3.new(rv.X, 0, rv.Z).Unit
 local base = Vector3.new(hrp.Position.X, groundY, hrp.Position.Z) + flat * 10
-
 local function facing(pos) return CFrame.new(pos, Vector3.new(hrp.Position.X, pos.Y, hrp.Position.Z)) end
 local function part(name, size, cf, color, mat)
 	return mk("Part", {
@@ -49,7 +40,6 @@ local function part(name, size, cf, color, mat)
 		TopSurface = Enum.SurfaceType.Smooth, BottomSurface = Enum.SurfaceType.Smooth,
 	}, model)
 end
-
 local caseCF = facing(base + rightV * 5 + Vector3.new(0, 1.5, 0))
 local case = part("Case", Vector3.new(3, 3, 3), caseCF, Color3.fromRGB(30, 31, 38))
 part("CaseTop", Vector3.new(3.05, 0.15, 3.05), caseCF * CFrame.new(0, 1.5, 0), Color3.fromRGB(88, 166, 255), Enum.Material.Metal)
@@ -58,7 +48,6 @@ for i = 0, 3 do
 	part(`Vent{i}`, Vector3.new(1.6, 0.15, 0.1), caseCF * CFrame.new(0.2, 0.2 - i * 0.35, -1.52), Color3.fromRGB(5, 5, 5))
 end
 local cd = mk("ClickDetector", {MaxActivationDistance = 40}, case)
-
 local deskCF = facing(base + Vector3.new(0, 0.05, 0) + rightV * 1.2)
 part("Desk", Vector3.new(11, 0.2, 4.5), deskCF, Color3.fromRGB(70, 52, 40), Enum.Material.Wood)
 local monPos = base - rightV * 2.5
@@ -68,8 +57,6 @@ local display = part("Display", Vector3.new(8.4, 5, 0.1), monCF * CFrame.new(0, 
 part("Stand", Vector3.new(1, 1.1, 1), facing(monPos + Vector3.new(0, 0.7, 0)), Color3.fromRGB(40, 42, 52))
 part("StandBase", Vector3.new(3, 0.2, 2), facing(monPos + Vector3.new(0, 0.3, 0)), Color3.fromRGB(40, 42, 52))
 part("Keyboard", Vector3.new(4.2, 0.15, 1.3), facing(monPos + flat * -1 + Vector3.new(0, 0.38, 0)) , Color3.fromRGB(50, 52, 64))
-
------------------------------------------------- TELA (buffer + render)
 local FONT, TSIZE = Enum.Font.Code, 16
 local CW, CH = 9, 16
 pcall(function()
@@ -78,10 +65,8 @@ pcall(function()
 end)
 local PADX, PADY = 14, 10
 local MAXW, MAXH = math.floor(592 / CW), math.floor(360 / CH)
-
 local scr = {W = MAXW, H = MAXH, ch = {}, fg = {}, bg = {}, fgc = 0xFFFFFF, bgc = 0, on = false}
 local dirty, views = {}, {}
-
 local function resetBuf(w, h)
 	scr.W, scr.H = w, h
 	scr.ch, scr.fg, scr.bg = {}, {}, {}
@@ -89,11 +74,9 @@ local function resetBuf(w, h)
 	for y = 1, MAXH do dirty[y] = true end
 end
 resetBuf(MAXW, MAXH)
-
 local function clampi(x) return math.floor(tonumber(x) or 0) end
 local function rgb(c) return Color3.fromRGB(math.floor(c / 65536) % 256, math.floor(c / 256) % 256, c % 256) end
 local esc = {["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;", ['"'] = "&quot;", ["'"] = "&apos;"}
-
 local function screenFrame(parent)
 	local outer = mk("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(34, 36, 48), BorderSizePixel = 0}, parent)
 	mk("UICorner", {CornerRadius = UDim.new(0, 26)}, outer)
@@ -101,7 +84,6 @@ local function screenFrame(parent)
 	mk("UICorner", {CornerRadius = UDim.new(0, 18)}, bg)
 	return outer, bg
 end
-
 local function buildView(bg, isActive)
 	local v = {lbl = {}, bgh = {}, active = isActive}
 	for y = 1, MAXH do
@@ -116,7 +98,6 @@ local function buildView(bg, isActive)
 	table.insert(views, v)
 	return v
 end
-
 local function rowData(y)
 	if not scr.on or y > scr.H then return "", {} end
 	local W, b0 = scr.W, (y - 1) * scr.W
@@ -136,7 +117,6 @@ local function rowData(y)
 	end
 	return table.concat(parts), bgs
 end
-
 local function flush()
 	for y = 1, MAXH do
 		if dirty[y] then
@@ -155,7 +135,6 @@ local function flush()
 	end
 end
 local function markAll() for y = 1, MAXH do dirty[y] = true end end
-
 local function bufSet(x, y, s, vert)
 	x, y = clampi(x), clampi(y)
 	local W, H = scr.W, scr.H
@@ -175,21 +154,14 @@ local function put(x, y, s, fg, bg)
 	scr.fgc, scr.bgc = f, b
 end
 local function center(y, s, fg) put(math.floor((scr.W - #s) / 2) + 1, y, s, fg) end
-
--- monitor no mundo
 local sg = mk("SurfaceGui", {Face = Enum.NormalId.Front, SizingMode = Enum.SurfaceGuiSizingMode.FixedSize, CanvasSize = Vector2.new(640, 400)}, display)
 local _, worldBg = screenFrame(sg)
 buildView(worldBg, function() return true end)
-
-
------------------------------------------------- GUI
 local gui = mk("ScreenGui", {Name = "OC_SimGui", ResetOnSpawn = false, DisplayOrder = 50}, guiParent())
-
 local overlay = mk("Frame", {Size = UDim2.fromOffset(640, 400), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), BackgroundTransparency = 1, Visible = false}, gui)
 local ovScale = mk("UIScale", {}, overlay)
 local _, ovBg = screenFrame(overlay)
 buildView(ovBg, function() return overlay.Visible end)
-
 local function styled(class, props, parent)
 	local o = mk(class, props, parent)
 	mk("UICorner", {CornerRadius = UDim.new(0, 8)}, o)
@@ -198,8 +170,6 @@ end
 local function btn(text, parent, color)
 	return styled("TextButton", {Text = text, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = T.text, BackgroundColor3 = color or T.btn, BorderSizePixel = 0}, parent)
 end
-
--- Painel de configuracao de tela (aberto pelo botao Tela)
 local cfgPanel = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.fromOffset(340, 190), BackgroundColor3 = T.panel, Visible = false, ZIndex = 30, BorderSizePixel = 0}, gui)
 mk("UICorner", {CornerRadius = UDim.new(0, 12)}, cfgPanel)
 mk("UIStroke", {Color = T.accent, Transparency = 0.4}, cfgPanel)
@@ -214,7 +184,6 @@ cfgApply.Position, cfgApply.Size, cfgApply.ZIndex = UDim2.fromOffset(12, 116), U
 local cfgClose = btn("Fechar", cfgPanel, T.bad)
 cfgClose.Position, cfgClose.Size, cfgClose.ZIndex = UDim2.fromOffset(178, 116), UDim2.fromOffset(150, 34), 31
 local cfgMsg = mk("TextLabel", {Position = UDim2.fromOffset(12, 156), Size = UDim2.new(1, -24, 0, 20), BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 13, TextColor3 = T.bad, TextXAlignment = Enum.TextXAlignment.Left, Text = "", ZIndex = 31}, cfgPanel)
-
 local function cfgRefresh()
 	cfgInfo.Text = `Atual: {scr.W} x {scr.H}   |   Limite: {MAXW} x {MAXH}`
 	cfgW.PlaceholderText, cfgH.PlaceholderText = tostring(scr.W), tostring(scr.H)
@@ -233,13 +202,11 @@ cfgApply.MouseButton1Click:Connect(function()
 	cfgMsg.Text = `Resolucao aplicada: {w} x {h}`
 end)
 cfgClose.MouseButton1Click:Connect(function() cfgPanel.Visible = false end)
-
 local dock = mk("Frame", {AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -10), Size = UDim2.fromOffset(640, 92), BackgroundColor3 = T.panel, BackgroundTransparency = 0.08, BorderSizePixel = 0}, gui)
 mk("UICorner", {CornerRadius = UDim.new(0, 14)}, dock)
 mk("UIStroke", {Color = T.accent, Transparency = 0.55, Thickness = 1}, dock)
 local dockScale = mk("UIScale", {}, dock)
 mk("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6)}, dock)
-
 local row1 = mk("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1}, dock)
 local box = styled("TextBox", {
 	Size = UDim2.new(1, -78, 1, 0), Font = Enum.Font.Code, TextSize = 16, PlaceholderText = "digite aqui e toque Enter",
@@ -249,12 +216,11 @@ local box = styled("TextBox", {
 mk("UIPadding", {PaddingLeft = UDim.new(0, 10)}, box)
 local bSend = btn("Enter", row1, T.accent)
 bSend.Position, bSend.Size = UDim2.new(1, -72, 0, 0), UDim2.new(0, 72, 1, 0)
-
 local row2 = mk("Frame", {Position = UDim2.new(0, 0, 0, 44), Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1}, dock)
 mk("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, row2)
 local function rb(text, order, color)
 	local b = btn(text, row2, color)
-	b.Size, b.LayoutOrder = UDim2.new(1 / 13, -3.6, 1, 0), order
+	b.Size, b.LayoutOrder = UDim2.new(1 / 14, -3.6, 1, 0), order
 	return b
 end
 local bPower, bTela, bCtrlC, bTab = rb("Power", 1, T.ok), rb("Tela", 2), rb("^C", 3), rb("Tab", 4)
@@ -263,9 +229,8 @@ local bFont = rb("Fonte", 9)
 local bItem = rb("Item", 10, T.accent)
 local bSize = rb("Medium", 11)
 local bCal = rb("Calibrar", 12)
-local bClose = rb("X", 13, T.bad)
-
--- editor de texto (componente roblox_editor)
+local bEsc = rb("Esc", 13)
+local bClose = rb("X", 14, T.bad)
 local editor = mk("Frame", {Size = UDim2.new(0.96, 0, 0, 300), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), BackgroundColor3 = T.panel, Visible = false, ZIndex = 20, BorderSizePixel = 0}, gui)
 mk("UICorner", {CornerRadius = UDim.new(0, 12)}, editor)
 mk("UISizeConstraint", {MaxSize = Vector2.new(640, 300)}, editor)
@@ -280,8 +245,6 @@ local eSave = btn("Salvar", editor, T.ok)
 eSave.Position, eSave.Size, eSave.ZIndex = UDim2.new(0, 6, 1, -40), UDim2.new(0, 110, 0, 34), 21
 local eCancel = btn("Cancelar", editor, T.bad)
 eCancel.Position, eCancel.Size, eCancel.ZIndex = UDim2.new(0, 124, 1, -40), UDim2.new(0, 110, 0, 34), 21
-
------------------------------------------------- MAQUINA
 local M = {state = "off", sig = {}, wake = math.huge, co = nil, bootAddr = nil, t0 = os.clock(), gen = 0, menu = false, input = nil, req = nil}
 local ledBase = Color3.fromRGB(40, 40, 40)
 local function setLed(c) ledBase = c led.Color = c end
@@ -294,15 +257,12 @@ end
 local function pushSignal(...)
 	if #M.sig < 4096 then table.insert(M.sig, table.pack(...)) end
 end
-
 local lf = loadstring
 local canLoad = false
 if lf then
 	local ok, f = pcall(lf, "return 1")
 	canLoad = ok and type(f) == "function"
 end
-
------------------------------------------------- COMPONENTES
 local comps, byAddr, disks = {}, {}, {}
 local CPU_MAX_COMPONENTS = 16 -- CPU Tier 3
 local function addComp(ctype, methods, addr)
@@ -312,8 +272,6 @@ local function addComp(ctype, methods, addr)
 	byAddr[c.addr] = c
 	return c
 end
-
--- sistema de arquivos
 local function pathParts(path)
 	local p = {}
 	for s in tostring(path):gmatch("[^/]+") do
@@ -328,7 +286,6 @@ local function fsSize(n)
 	for _, v in pairs(n.c) do s += fsSize(v) end
 	return s
 end
-
 local function makeFs(label, restricted)
 	local fs = {label = label, root = newNode("d"), h = {}, hn = 0, restricted = restricted and true or false}
 	local function at(path)
@@ -442,7 +399,6 @@ local function makeFs(label, restricted)
 	m.close = function(h) fs.h[h] = nil return true end
 	return fs, m
 end
-
 local function addDisk(label, tmp, restricted)
 	local fs, m = makeFs(label, restricted)
 	local c = addComp("filesystem", m)
@@ -459,8 +415,6 @@ local function seed(d, path, data)
 	d.m.close(h)
 	d.fs.restricted = prev
 end
-
--- gpu
 local PAL = {0xFFFFFF, 0xFFCC33, 0xCC66CC, 0x6699FF, 0xFFFF33, 0x33CC33, 0xFF6699, 0x333333, 0xCCCCCC, 0x336699, 0x9933CC, 0x333399, 0x663300, 0x336600, 0xFF3333, 0x000000}
 local function col(c, pal)
 	c = math.floor(tonumber(c) or 0)
@@ -533,9 +487,6 @@ local gpuM = {
 	getActiveBuffer = function() return 0 end,
 	buffers = function() return {} end,
 }
-
-
------------------------------------------------- ITENS (catalogo de blocos OC)
 local CATALOG = {
 	{"Gabinete de computador", "computer", "Liga o computador e guarda as pecas. Ja existe no simulador."},
 	{"Tela", "screen", "Mostra texto, controlada por uma GPU. Ja instalada."},
@@ -570,7 +521,6 @@ local CATALOG = {
 local selectedItem = nil
 local diskCount = 2
 local userDisks = {} -- HDDs criados pelo Item (os nativos nao podem ser excluidos)
-
 local itemPanel = mk("Frame", {
 	Size = UDim2.new(0.96, 0, 0, 300), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10),
 	BackgroundColor3 = T.panel, Visible = false, ZIndex = 30, BorderSizePixel = 0,
@@ -602,13 +552,11 @@ local itemClose = styled("TextButton", {
 	Position = UDim2.new(1, -66, 1, -36), Size = UDim2.new(0, 60, 0, 30), Text = "Fechar",
 	Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = T.text, BackgroundColor3 = T.bad, BorderSizePixel = 0, ZIndex = 31,
 }, itemPanel)
-
 local function isPresent(ctype)
 	for _, c in ipairs(comps) do if c.type == ctype then return true end end
 	return false
 end
-
-local refreshItems
+local refreshItems, hddOpen, installDrive, installAdapter, makeFloppy
 refreshItems = function()
 	for _, c in ipairs(itemScroll:GetChildren()) do
 		if c:IsA("TextButton") then c:Destroy() end
@@ -648,13 +596,11 @@ refreshItems = function()
 		end)
 	end
 end
-
 local worldN = 0
 itemWorld.MouseButton1Click:Connect(function()
 	if not selectedItem then itemInfo.Text = "Selecione um bloco primeiro." return end
 	local it = CATALOG[selectedItem]
 	worldN += 1
-	-- cada bloco novo vai para outra posicao (nao sobrepoe o anterior)
 	local pos = display.CFrame * CFrame.new(-6 - ((worldN - 1) % 4) * 2.6, -1.5 - math.floor((worldN - 1) / 4) * 2.6, 0.5)
 	local blk = part("OC_" .. it[2], Vector3.new(2, 2, 2), pos, Color3.fromRGB(88, 166, 255), Enum.Material.Metal)
 	mk("BillboardGui", {Size = UDim2.fromOffset(160, 36), StudsOffset = Vector3.new(0, 2, 0), AlwaysOnTop = true}, blk)
@@ -668,7 +614,6 @@ bItem.MouseButton1Click:Connect(function()
 	itemPanel.Visible = not itemPanel.Visible
 	if itemPanel.Visible then refreshItems() end
 end)
-
 local KBS = {}
 local computerC = addComp("computer", {})
 local eeprom = {data = "", label = "EEPROM (Lua BIOS)", code = "-- BIOS simulado no hospedeiro: procura /init.lua nos discos e pergunta quando ha mais de um."}
@@ -689,8 +634,6 @@ local scrC = addComp("screen", {
 	setTouchModeInverted = function() end, isTouchModeInverted = function() return false end,
 })
 scrAddr = scrC.addr
-
--- clique no monitor: raio da tela até o monitor e conversao pelas bordas projetadas na tela
 local UIS = game:GetService("UserInputService")
 local function screenToCell(sx, sy)
 	local cam = workspace.CurrentCamera
@@ -698,7 +641,6 @@ local function screenToCell(sx, sy)
 	local function proj(lx, ly)
 		return cam:WorldToViewportPoint((cf * CFrame.new(lx, ly, 0)).Position)
 	end
-	-- bordas esquerda/direita e topo/base, na ordem da tela (independe de espelhamento)
 	local a, b = proj(sz.X / 2, 0), proj(-sz.X / 2, 0)
 	local left, right = a, b
 	if b.X < a.X then left, right = b, a end
@@ -714,11 +656,9 @@ local function screenToCell(sx, sy)
 	if col < 1 or col > scr.W or row < 1 or row > scr.H then return nil end
 	return col, row
 end
--- calibracao: a tela mostra um alvo vermelho e um verde; o usuario toca em cada um
 local calib, calibStep, calibPts, calibSaved = nil, 0, {}, nil
 local TL = {c = 3, r = 2}      -- centro do alvo vermelho (cols 2-4, linha 2)
 local function brCell() return {c = scr.W - 3, r = scr.H - 1} end -- centro do alvo verde
-
 local function saveCell(x, y)
 	local i = (y - 1) * scr.W + x
 	return {x = x, y = y, ch = scr.ch[i], fg = scr.fg[i], bg = scr.bg[i]}
@@ -741,13 +681,11 @@ local function calibDraw(on)
 		calibSaved = nil
 	end
 end
-
 local function calibWhite()
 	local cx, cy = math.floor(scr.W / 2) - 1, math.floor(scr.H / 2)
 	for x = cx, cx + 2 do table.insert(calibSaved, saveCell(x, cy)) end
 	put(cx, cy, "   ", 0x000000, 0xFFFFFF)
 end
-
 local function calibCell(sx, sy)
 	local tl, br = calib.tl, calib.br
 	local b = brCell()
@@ -756,14 +694,12 @@ local function calibCell(sx, sy)
 	if col < 1 or col > scr.W or row < 1 or row > scr.H then return nil end
 	return col, row
 end
-
 bCal.MouseButton1Click:Connect(function()
 	calib, calibStep, calibPts = nil, 1, {}
 	calibDraw(true)
 	bCal.Text = "toque vermelho"
 end)
-
-UIS.InputBegan:Connect(function(input, gp)
+ex.OCSimInput = UIS.InputBegan:Connect(function(input, gp)
 	if gp or M.state ~= "running" or not scr.on then return end
 	local kind = input.UserInputType
 	if kind ~= Enum.UserInputType.Touch and kind ~= Enum.UserInputType.MouseButton1 then return end
@@ -799,7 +735,6 @@ end)
 local kbC = addComp("keyboard", {})
 KBS[1] = kbC.addr
 local tmpAddr = addDisk("tmpfs", true)
-
 local httpFn
 do
 	local g = (getgenv and getgenv()) or _G
@@ -841,8 +776,6 @@ addComp("internet", {
 		}
 	end,
 })
-
--- salva arquivos na pasta Workspace do Delta: Workspace/OpenComputers/
 local SAVE_DIR = "OpenComputers"
 addComp("workspace", {
 	write = function(name, data)
@@ -859,8 +792,6 @@ addComp("workspace", {
 	end,
 	getPath = function() return SAVE_DIR end,
 })
-
------------------------------------------------- VERIFICADOR (so le texto, nunca executa)
 local SUSPECT = {
 	{"require com ID numerico", "require%s*%(%s*%d", true},
 	{"loadstring (executa texto como codigo)", "loadstring", false},
@@ -900,7 +831,6 @@ addComp("antivirus", {
 		return data
 	end,
 })
-
 local ed = {}
 local function closeEditor(saved)
 	editor.Visible = false
@@ -936,14 +866,11 @@ eSave.MouseButton1Click:Connect(function()
 	end
 end)
 eCancel.MouseButton1Click:Connect(function() closeEditor(false) end)
-
------------------------------------------------- AMBIENTE DO CONVIDADO (API do OC)
 local function pullFor(co) return co end
 local function makeEnv()
 	local rawResume, rawYield, rawStatus, rawCreate = coroutine.resume, coroutine.yield, coroutine.status, coroutine.create
 	local SYS = {}
 	local env = {}
-
 	local function gresume(co, ...)
 		local r = table.pack(rawResume(co, ...))
 		while r[1] and r[2] == SYS and rawStatus(co) == "suspended" do
@@ -963,7 +890,6 @@ local function makeEnv()
 			end
 		end,
 	}
-
 	local function chars(s) local t = {} for c in tostring(s):gmatch(utf8.charpattern) do t[#t + 1] = c end return t end
 	local unicode = {
 		char = function(...) local t = {} for i, c in ipairs({...}) do t[i] = utf8.char(c) end return table.concat(t) end,
@@ -986,7 +912,6 @@ local function makeEnv()
 		wlen = function(s) return utf8.len(tostring(s)) or #tostring(s) end,
 		wtrunc = function(s, n) return table.concat(chars(s), "", 1, math.max(0, n - 1)) end,
 	}
-
 	local computer = {
 		address = function() return computerC.addr end,
 		tmpAddress = function() return tmpAddr end,
@@ -1011,7 +936,6 @@ local function makeEnv()
 		isRobot = function() return false end, runlevel = function() return 1 end,
 		getDeviceInfo = function() return {} end,
 	}
-
 	local function proxyOf(addr)
 		local c = byAddr[addr]
 		if not c then return nil, "no such component" end
@@ -1065,7 +989,6 @@ local function makeEnv()
 	setmetatable(component, {__index = function(_, k)
 		for _, c in ipairs(comps) do if c.type == k then return proxyOf(c.addr) end end
 	end})
-
 	local function load2(chunk, name, mode, e)
 		if type(chunk) == "function" then
 			local t = {}
@@ -1082,7 +1005,6 @@ local function makeEnv()
 		for _, x in ipairs({...}) do if x == t or (x == "nil" and v == nil) then return true end end
 		error("bad argument #" .. n .. " (" .. table.concat({...}, " or ") .. " expected, got " .. t .. ")", 3)
 	end
-
 	local hostos = {}
 	for _, k in ipairs({"clock", "time", "date", "difftime"}) do hostos[k] = os[k] end
 	env.assert, env.error, env.getmetatable, env.ipairs, env.next, env.pairs = assert, error, getmetatable, ipairs, next, pairs
@@ -1090,16 +1012,19 @@ local function makeEnv()
 	env.tonumber, env.tostring, env.type, env.xpcall, env.rawlen = tonumber, tostring, type, xpcall, rawlen
 	env.load, env.checkArg, env._VERSION = load2, checkArg, "Lua 5.3"
 	env.unpack = table.unpack
-	env.math, env.string, env.table, env.utf8, env.bit32 = math, string, table, utf8, bit32
+	local function copyTable(t)
+		local c = {}
+		for k, v in pairs(t) do c[k] = v end
+		return c
+	end
+	env.math, env.string, env.table, env.utf8 = copyTable(math), copyTable(string), copyTable(table), copyTable(utf8)
+	env.bit32 = bit32 and copyTable(bit32) or nil
 	env.coroutine, env.os, env.debug = gco, hostos, {traceback = debug.traceback}
 	env.unicode, env.computer, env.component = unicode, computer, component
 	env._G = env
 	return env
 end
-
------------------------------------------------- BIOS / BOOT
 local powerOff, bootSequence
-
 local function crash(msg)
 	M.state, M.co = "halted", nil
 	resetBuf(MAXW, MAXH)
@@ -1116,7 +1041,6 @@ local function crash(msg)
 	put(2, scr.H, "Toque Power para desligar e ligar de novo.", 0x8A8FA3)
 	setLed(Color3.fromRGB(255, 60, 60))
 end
-
 local function startGuest(addr)
 	local d = disks[addr]
 	local node = d.fs.root.c["init.lua"]
@@ -1128,7 +1052,6 @@ local function startGuest(addr)
 	M.co, M.sig, M.wake, M.bootAddr, M.t0, M.req = coroutine.create(f), {}, 0, addr, os.clock(), nil
 	M.state = "running"
 end
-
 function bootSequence()
 	if M.state ~= "off" then return end
 	M.gen += 1
@@ -1173,6 +1096,10 @@ function bootSequence()
 		row += 1
 		put(2, row, `Achei {#cands} arquivos /init.lua. Qual iniciar?`, 0xFFCC33) row += 1
 		for i, a in ipairs(cands) do
+			if row >= scr.H - 3 then
+				put(4, row, `... e mais {#cands - i + 1} (digite o numero)`, 0x8A8FA3)
+				break
+			end
 			put(4, row, `[{i}] {disks[a].fs.label}  ({a:sub(1, 8)}){i == def and "   <- padrao" or ""}`, 0xFFFFFF)
 			row += 1
 		end
@@ -1194,7 +1121,6 @@ function bootSequence()
 	setLed(Color3.fromRGB(60, 255, 60))
 	startGuest(pick)
 end
-
 function powerOff()
 	M.gen += 1
 	M.state, M.co, M.sig, M.menu = "off", nil, {}, false
@@ -1202,7 +1128,6 @@ function powerOff()
 	resetBuf(MAXW, MAXH)
 	setLed(Color3.fromRGB(40, 40, 40))
 end
-
 local function step()
 	if M.paused then return end
 	local t0 = os.clock()
@@ -1226,8 +1151,6 @@ local function step()
 		if coroutine.status(M.co) == "dead" then crash("computer halted (o /init.lua terminou)") return end
 	end
 end
-
------------------------------------------------- ENTRADA
 local KEYCODE = {[" "] = 57, ["-"] = 12, ["="] = 13, ["["] = 26, ["]"] = 27, [";"] = 39, ["'"] = 40, [","] = 51, ["."] = 52, ["/"] = 53, ["\\"] = 43, ["`"] = 41}
 for _, r in ipairs({{"1234567890", 2}, {"qwertyuiop", 16}, {"asdfghjkl", 30}, {"zxcvbnm", 44}}) do
 	for i = 1, #r[1] do KEYCODE[r[1]:sub(i, i)] = r[2] + i - 1 end
@@ -1237,7 +1160,6 @@ local function pushKey(chr, code)
 	pushSignal("key_up", kbC.addr, chr, code, "jogador")
 end
 local function key(chr, code) if M.state == "running" then pushKey(chr, code) end end
-
 local function sendText(text)
 	if M.state == "bios" and M.menu then M.input = text return end
 	if M.state ~= "running" then return end
@@ -1246,21 +1168,20 @@ local function sendText(text)
 	end)
 	pushKey(13, 28)
 end
-
 local function togglePower()
 	if M.state == "off" then task.spawn(bootSequence) else powerOff() end
 end
 local function stopAll()
 	powerOff()
 	if ex.OCSimConn then ex.OCSimConn:Disconnect() ex.OCSimConn = nil end
+	if ex.OCSimInput then ex.OCSimInput:Disconnect() ex.OCSimInput = nil end
+	if ex.OCSimVP then ex.OCSimVP:Disconnect() ex.OCSimVP = nil end
 	model:Destroy()
 	gui:Destroy()
 end
 ex.OCSimStop = stopAll
-
 cd.MouseClick:Connect(togglePower)
 bPower.MouseButton1Click:Connect(togglePower)
--- tamanho da tela: Small -> Medium -> Large
 local SIZE_NAMES, SIZE_FACTOR, sizeIdx = {"Small", "Medium", "Large"}, {0.5, 0.75, 1}, 2
 local function updateScales()
 	local vp = workspace.CurrentCamera.ViewportSize
@@ -1275,7 +1196,7 @@ bSize.MouseButton1Click:Connect(function()
 	markAll()
 end)
 updateScales()
-workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+ex.OCSimVP = workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 	updateScales()
 	markAll()
 end)
@@ -1301,13 +1222,13 @@ bFont.MouseButton1Click:Connect(function()
 	end
 end)
 bCtrlC.MouseButton1Click:Connect(function() key(3, 46) end)
+bEsc.MouseButton1Click:Connect(function() key(0, 1) end)
 bTab.MouseButton1Click:Connect(function() key(9, 15) end)
 bUp.MouseButton1Click:Connect(function() key(0, 200) end)
 bDn.MouseButton1Click:Connect(function() key(0, 208) end)
 bLf.MouseButton1Click:Connect(function() key(0, 203) end)
 bRt.MouseButton1Click:Connect(function() key(0, 205) end)
 bClose.MouseButton1Click:Connect(stopAll)
-
 local function submit()
 	local text = box.Text
 	box.Text = ""
@@ -1320,16 +1241,14 @@ box.FocusLost:Connect(function(enter)
 		task.defer(function() if box.Parent then box:CaptureFocus() end end)
 	end
 end)
-
 local acc = 0
 ex.OCSimConn = RunService.Heartbeat:Connect(function(dt)
 	step()
 	acc += dt
 	if acc >= 0.05 then acc = 0 flush() end
 end)
-
------------------------------------------------- DISCOS
-seed(dA, "/init.lua", [==[
+seed(dA, "/init.lua", 
+[==[
 -- OpenOS-Lite 2.0  (/init.lua do disco 1)
 local component, computer, unicode = component, computer, unicode
 local gpu = component.proxy(component.list("gpu")())
@@ -2119,14 +2038,16 @@ while true do
 	if line and line ~= "" then shell.execute(line) end
 end
 ]==])
-seed(dA, "/home/hello.lua", [==[
+seed(dA, "/home/hello.lua", 
+[==[
 print("Ola do OpenOS-Lite!")
 local component = require("component")
 local gpu = component.gpu
 print("resolucao:", gpu.getResolution())
 print("RAM livre:", require("computer").freeMemory())
 ]==])
-seed(dA, "/home/cor.lua", [==[
+seed(dA, "/home/cor.lua", 
+[==[
 local gpu = require("component").gpu
 local term = require("term")
 for i = 0, 7 do
@@ -2137,8 +2058,8 @@ gpu.setBackground(0x0B0E17)
 print()
 ]==])
 seed(dA, "/etc/motd", "OpenOS-Lite 2.0\n")
-
-seed(dB, "/init.lua", [==[
+seed(dB, "/init.lua", 
+[==[
 -- MiniOS 0.2 (/init.lua do disco 2): GUI simples com area de trabalho
 -- Clique (touch) ou setas + Enter abrem apps. Esc fecha a janela.
 local gpu = component.proxy(component.list("gpu")())
@@ -2356,9 +2277,6 @@ while true do
 end
 ]==])
 seed(dB, "/readme.txt", "Segundo disco com outro /init.lua.\n")
-
-
------------------------------------------------- DIALOGO: HDD novo (Qual sistema?)
 local hdd = mk("Frame", {Size = UDim2.new(0.8, 0, 0, 220), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0),
 	BackgroundColor3 = T.panel, Visible = false, ZIndex = 40, BorderSizePixel = 0}, gui)
 mk("UISizeConstraint", {MaxSize = Vector2.new(360, 220)}, hdd)
@@ -2371,7 +2289,6 @@ local hddMsg = mk("TextLabel", {Position = UDim2.fromOffset(12, 34), Size = UDim
 	Font = Enum.Font.Code, TextSize = 13, TextColor3 = Color3.fromRGB(200, 205, 220), TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = "", ZIndex = 41}, hdd)
 hddMsg.Size = UDim2.new(1, -24, 0, 60)
-
 local function hddClose() hdd.Visible = false end
 local function hddCreate(label, initSrc, restricted)
 	if #comps >= CPU_MAX_COMPONENTS then
@@ -2388,7 +2305,6 @@ local function hddCreate(label, initSrc, restricted)
 	itemInfo.Text = label .. " criado (" .. addr:sub(1, 8) .. "). Reinicie para escolher no BIOS."
 end
 local function initOf(addr) return disks[addr] and disks[addr].fs.root.c["init.lua"] and disks[addr].fs.root.c["init.lua"].data or "" end
-
 local function hddButton(text, y, color)
 	return styled("TextButton", {Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 36), Text = text,
 		Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = T.text, BackgroundColor3 = color or T.btn,
@@ -2402,18 +2318,15 @@ local hbOK = styled("TextButton", {Position = UDim2.new(1, -92, 1, -40), Size = 
 	Visible = false, ZIndex = 42}, hdd)
 local hbCancel = styled("TextButton", {Position = UDim2.new(0, 12, 1, -40), Size = UDim2.fromOffset(80, 30), Text = "Cancelar",
 	Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = T.text, BackgroundColor3 = T.bad, BorderSizePixel = 0, ZIndex = 41}, hdd)
-
 local function setWarn(on)
 	hbOK.Visible = on
 	hb1.Visible, hb2.Visible, hb3.Visible = not on, not on, not on
 end
-
-function hddOpen()
+hddOpen = function()
 	hddMsg.Text = "Escolha o sistema que vai no novo disco:"
 	setWarn(false)
 	hdd.Visible = true
 end
-
 hb1.MouseButton1Click:Connect(function() hddCreate("OpenOS-Lite", initOf(diskA)) end)
 hb2.MouseButton1Click:Connect(function() hddCreate("MiniOS", initOf(diskB)) end)
 hb3.MouseButton1Click:Connect(function()
@@ -2421,14 +2334,10 @@ hb3.MouseButton1Click:Connect(function()
 	setWarn(true)
 end)
 hbOK.MouseButton1Click:Connect(function()
-	-- Sistema nao oficial: cria disco RESTRITO (nao pode criar, editar ou apagar arquivos)
 	hddCreate("Sistema nao oficial (restrito)", "-- Sistema nao oficial e RESTRITO: nao pode ser editado nem apagado pelo simulador.\nlocal gpu = component.proxy(component.list('gpu')())\ngpu.bind(component.list('screen')())\nlocal W, H = gpu.maxResolution()\ngpu.setResolution(W, H)\ngpu.fill(1, 1, W, H, ' ')\ngpu.set(2, 2, 'Sistema nao oficial (restrito)')\nwhile true do computer.pullSignal() end\n", true)
 	setWarn(false)
 end)
 hbCancel.MouseButton1Click:Connect(hddClose)
-
-
------------------------------------------------- EXCLUIR HDD (so os criados pelo Item, desligado, com confirmacao)
 local pendingDel = false
 local itemDel = styled("TextButton", {
 	Position = UDim2.new(1, -212, 1, -36), Size = UDim2.fromOffset(70, 30), Text = "Excluir HDD",
@@ -2461,15 +2370,11 @@ itemDel.MouseButton1Click:Connect(function()
 	itemInfo.Text = "HDD excluido (" .. addr:sub(1, 8) .. ")."
 	refreshItems()
 end)
-
-
------------------------------------------------- UNIDADE DE DISCO + DISQUETE
 local driveLabel = "Unidade de disco"
 local driveFloppy = nil   -- endereco do disquete que esta dentro da unidade
 local lastEjected = nil   -- ultimo disquete ejetado (pode ser colocado de volta)
 local floppyComp = {}     -- addr -> registro do componente, guardado enquanto esta ejetado
 local floppyCount = 0
-
 local function removeComp(addr)
 	for i, c in ipairs(comps) do
 		if c.addr == addr then
@@ -2483,7 +2388,6 @@ local function restoreComp(c)
 	table.insert(comps, c)
 	byAddr[c.addr] = c
 end
-
 local driveM = {
 	isEmpty = function() return driveFloppy == nil end,
 	getLabel = function() return driveLabel end,
@@ -2506,7 +2410,6 @@ local driveM = {
 		return true
 	end,
 }
-
 local adapterLbl, adapterBB = nil, nil
 local adapterM = {
 	getName = function() return "oc_sim_adapter" end,
@@ -2529,20 +2432,17 @@ local adapterM = {
 		return true
 	end,
 }
-
-function installDrive(name)
+installDrive = function(name)
 	if isPresent("disk_drive") then itemInfo.Text = name .. " ja esta instalada." return end
 	local ok, err = pcall(addComp, "disk_drive", driveM)
 	itemInfo.Text = ok and (name .. " instalada no computador.") or tostring(err)
 end
-
-function installAdapter(name)
+installAdapter = function(name)
 	if isPresent("adapter") then itemInfo.Text = name .. " ja esta instalado." return end
 	local ok, err = pcall(addComp, "adapter", adapterM)
 	itemInfo.Text = ok and (name .. " instalado. Use component.adapter.say('oi').") or tostring(err)
 end
-
-function makeFloppy()
+makeFloppy = function()
 	if not isPresent("disk_drive") then itemInfo.Text = "Instale a Unidade de disco primeiro." return end
 	if driveFloppy then itemInfo.Text = "A unidade ja tem disquete. Ejete antes." return end
 	floppyCount += 1
@@ -2551,11 +2451,9 @@ function makeFloppy()
 	driveFloppy = addr
 	itemInfo.Text = "Disquete FLOPPY" .. floppyCount .. " colocado na unidade."
 end
-
-
------------------------------------------------- DISCO GUIOS (sistema com janelas)
 local _, dGui = addDisk("GUIOS")
-seed(dGui, "/init.lua", [==[
+seed(dGui, "/init.lua", 
+[==[
 -- GUIOS 1.0 (/init.lua do disco GUIOS): janelas, clique e teclado
 local gpu = component.proxy(component.list("gpu")())
 gpu.bind(component.list("screen")())
@@ -2756,5 +2654,4 @@ while true do
 	end
 end
 ]==])
-
 print("[OC Sim v3] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
