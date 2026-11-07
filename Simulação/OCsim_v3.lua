@@ -254,7 +254,7 @@ local row2 = mk("Frame", {Position = UDim2.new(0, 0, 0, 44), Size = UDim2.new(1,
 mk("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, row2)
 local function rb(text, order, color)
 	local b = btn(text, row2, color)
-	b.Size, b.LayoutOrder = UDim2.new(1 / 12, -3.6, 1, 0), order
+	b.Size, b.LayoutOrder = UDim2.new(1 / 13, -3.6, 1, 0), order
 	return b
 end
 local bPower, bTela, bCtrlC, bTab = rb("Power", 1, T.ok), rb("Tela", 2), rb("^C", 3), rb("Tab", 4)
@@ -262,7 +262,8 @@ local bUp, bDn, bLf, bRt = rb("↑", 5), rb("↓", 6), rb("←", 7), rb("→", 8
 local bFont = rb("Fonte", 9)
 local bItem = rb("Item", 10, T.accent)
 local bSize = rb("Medium", 11)
-local bClose = rb("X", 12, T.bad)
+local bCal = rb("Calibrar", 12)
+local bClose = rb("X", 13, T.bad)
 
 -- editor de texto (componente roblox_editor)
 local editor = mk("Frame", {Size = UDim2.new(0.96, 0, 0, 300), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10), BackgroundColor3 = T.panel, Visible = false, ZIndex = 20, BorderSizePixel = 0}, gui)
@@ -648,10 +649,13 @@ refreshItems = function()
 	end
 end
 
+local worldN = 0
 itemWorld.MouseButton1Click:Connect(function()
 	if not selectedItem then itemInfo.Text = "Selecione um bloco primeiro." return end
 	local it = CATALOG[selectedItem]
-	local pos = display.CFrame * CFrame.new(-6, -1.5, 0.5)
+	worldN += 1
+	-- cada bloco novo vai para outra posicao (nao sobrepoe o anterior)
+	local pos = display.CFrame * CFrame.new(-6 - ((worldN - 1) % 4) * 2.6, -1.5 - math.floor((worldN - 1) / 4) * 2.6, 0.5)
 	local blk = part("OC_" .. it[2], Vector3.new(2, 2, 2), pos, Color3.fromRGB(88, 166, 255), Enum.Material.Metal)
 	mk("BillboardGui", {Size = UDim2.fromOffset(160, 36), StudsOffset = Vector3.new(0, 2, 0), AlwaysOnTop = true}, blk)
 	local bb = blk:FindFirstChildOfClass("BillboardGui")
@@ -686,21 +690,111 @@ local scrC = addComp("screen", {
 })
 scrAddr = scrC.addr
 
--- clique no monitor: ClickDetector na tela + posicao via Mouse.Hit (funciona em PC e celular)
-local screenCD = mk("ClickDetector", {MaxActivationDistance = 60}, display)
-local function cellFromHit(hitPos)
-	local lp = display.CFrame:PointToObjectSpace(hitPos)
-	local cx = lp.X / display.Size.X + 0.5
-	local cy = 0.5 - lp.Y / display.Size.Y
-	if cx < 0 or cx > 1 or cy < 0 or cy > 1 then return nil end
-	return math.floor(cx * scr.W) + 1, math.floor(cy * scr.H) + 1
+-- clique no monitor: raio da tela até o monitor e conversao pelas bordas projetadas na tela
+local UIS = game:GetService("UserInputService")
+local function screenToCell(sx, sy)
+	local cam = workspace.CurrentCamera
+	local cf, sz = display.CFrame, display.Size
+	local function proj(lx, ly)
+		return cam:WorldToViewportPoint((cf * CFrame.new(lx, ly, 0)).Position)
+	end
+	-- bordas esquerda/direita e topo/base, na ordem da tela (independe de espelhamento)
+	local a, b = proj(sz.X / 2, 0), proj(-sz.X / 2, 0)
+	local left, right = a, b
+	if b.X < a.X then left, right = b, a end
+	local t, u = proj(0, sz.Y / 2), proj(0, -sz.Y / 2)
+	local top, bottom = t, u
+	if u.Y < t.Y then top, bottom = u, t end
+	local fx = (sx - left.X) / math.max(1, right.X - left.X)
+	local fy = (sy - top.Y) / math.max(1, bottom.Y - top.Y)
+	if fx < 0 or fx > 1 or fy < 0 or fy > 1 then return nil end
+	local px, py = fx * 640, fy * 400
+	local col = math.floor((px - (10 + PADX)) / CW) + 1
+	local row = math.floor((py - (10 + PADY)) / CH) + 1
+	if col < 1 or col > scr.W or row < 1 or row > scr.H then return nil end
+	return col, row
 end
-screenCD.MouseClick:Connect(function(p)
-	if p ~= player or M.state ~= "running" or not scr.on then return end
-	local mouse = player:GetMouse()
-	local col, row = cellFromHit(mouse.Hit.Position)
+-- calibracao: a tela mostra um alvo vermelho e um verde; o usuario toca em cada um
+local calib, calibStep, calibPts, calibSaved = nil, 0, {}, nil
+local TL = {c = 3, r = 2}      -- centro do alvo vermelho (cols 2-4, linha 2)
+local function brCell() return {c = scr.W - 3, r = scr.H - 1} end -- centro do alvo verde
+
+local function saveCell(x, y)
+	local i = (y - 1) * scr.W + x
+	return {x = x, y = y, ch = scr.ch[i], fg = scr.fg[i], bg = scr.bg[i]}
+end
+local function calibDraw(on)
+	M.paused = on and true or false
+	if on then
+		local br = brCell()
+		calibSaved = {}
+		for x = 2, 4 do table.insert(calibSaved, saveCell(x, TL.r)) end
+		for x = br.c - 1, br.c + 1 do table.insert(calibSaved, saveCell(x, br.r)) end
+		put(2, TL.r, "   ", 0xFFFFFF, 0xFF2020)
+		put(br.c - 1, br.r, "   ", 0xFFFFFF, 0x20FF20)
+	elseif calibSaved then
+		for _, c in ipairs(calibSaved) do
+			local i = (c.y - 1) * scr.W + c.x
+			scr.ch[i], scr.fg[i], scr.bg[i] = c.ch, c.fg, c.bg
+			dirty[c.y] = true
+		end
+		calibSaved = nil
+	end
+end
+
+local function calibWhite()
+	local cx, cy = math.floor(scr.W / 2) - 1, math.floor(scr.H / 2)
+	for x = cx, cx + 2 do table.insert(calibSaved, saveCell(x, cy)) end
+	put(cx, cy, "   ", 0x000000, 0xFFFFFF)
+end
+
+local function calibCell(sx, sy)
+	local tl, br = calib.tl, calib.br
+	local b = brCell()
+	local col = math.floor(TL.c + (sx - tl.X) / math.max(1, br.X - tl.X) * (b.c - TL.c) + 0.5)
+	local row = math.floor(TL.r + (sy - tl.Y) / math.max(1, br.Y - tl.Y) * (b.r - TL.r) + 0.5)
+	if col < 1 or col > scr.W or row < 1 or row > scr.H then return nil end
+	return col, row
+end
+
+bCal.MouseButton1Click:Connect(function()
+	calib, calibStep, calibPts = nil, 1, {}
+	calibDraw(true)
+	bCal.Text = "toque vermelho"
+end)
+
+UIS.InputBegan:Connect(function(input, gp)
+	if gp or M.state ~= "running" or not scr.on then return end
+	local kind = input.UserInputType
+	if kind ~= Enum.UserInputType.Touch and kind ~= Enum.UserInputType.MouseButton1 then return end
+	local cam = workspace.CurrentCamera
+	local ray = cam:ViewportPointToRay(input.Position.X, input.Position.Y)
+	local hit = workspace:Raycast(ray.Origin, ray.Direction * 500)
+	if not hit or hit.Instance ~= display then return end
+	local sx, sy = input.Position.X, input.Position.Y
+	if calibStep > 0 then
+		if calibStep == 1 then
+			calibPts.tl = Vector2.new(sx, sy)
+			calibStep = 2
+			bCal.Text = "toque verde"
+		elseif calibStep == 2 then
+			calibPts.br = Vector2.new(sx, sy)
+			calib = calibPts
+			calibStep = 3
+			calibWhite()
+			bCal.Text = "toque branco"
+		else
+			calibStep = 0
+			calibDraw(false)
+			bCal.Text = "Calibrado"
+		end
+		return
+	end
+	local col, row
+	if calib then col, row = calibCell(sx, sy)
+	else col, row = screenToCell(sx, sy) end
 	if not col then return end
-	pushSignal("touch", scrC.addr, col, row, 0, player.Name)
+	pushSignal("touch", scrC.addr, col, row, 0, "jogador")
 end)
 local kbC = addComp("keyboard", {})
 KBS[1] = kbC.addr
@@ -1110,6 +1204,7 @@ function powerOff()
 end
 
 local function step()
+	if M.paused then return end
 	local t0 = os.clock()
 	while M.state == "running" and os.clock() - t0 < 0.007 do
 		local sig
@@ -1138,8 +1233,8 @@ for _, r in ipairs({{"1234567890", 2}, {"qwertyuiop", 16}, {"asdfghjkl", 30}, {"
 	for i = 1, #r[1] do KEYCODE[r[1]:sub(i, i)] = r[2] + i - 1 end
 end
 local function pushKey(chr, code)
-	pushSignal("key_down", kbC.addr, chr, code, player.Name)
-	pushSignal("key_up", kbC.addr, chr, code, player.Name)
+	pushSignal("key_down", kbC.addr, chr, code, "jogador")
+	pushSignal("key_up", kbC.addr, chr, code, "jogador")
 end
 local function key(chr, code) if M.state == "running" then pushKey(chr, code) end end
 
@@ -1197,7 +1292,7 @@ end)
 local fontOC = false
 bFont.MouseButton1Click:Connect(function()
 	fontOC = not fontOC
-	bFont.Text = fontOC and "Fonte OC" or "Fonte RBX"
+	bFont.Text = fontOC and "OC" or "RBX"
 	bFont.BackgroundColor3 = fontOC and T.ok or T.btn
 	for _, v in ipairs(views) do
 		for _, l in ipairs(v.lbl) do
@@ -2456,5 +2551,210 @@ function makeFloppy()
 	driveFloppy = addr
 	itemInfo.Text = "Disquete FLOPPY" .. floppyCount .. " colocado na unidade."
 end
+
+
+------------------------------------------------ DISCO GUIOS (sistema com janelas)
+local _, dGui = addDisk("GUIOS")
+seed(dGui, "/init.lua", [==[
+-- GUIOS 1.0 (/init.lua do disco GUIOS): janelas, clique e teclado
+local gpu = component.proxy(component.list("gpu")())
+gpu.bind(component.list("screen")())
+local W, H = gpu.maxResolution()
+gpu.setResolution(W, H)
+
+local C = {bg = 0x1E2A3A, bar = 0x2F4A6B, bar2 = 0x3C6A99, win = 0x26354A, txt = 0xFFFFFF, dim = 0x9FB3CC, ok = 0x77FFAA, err = 0xFF6B6B, btn = 0x3A5577, key = 0xFFCC33}
+
+local function fill(x, y, w, h, bg)
+	gpu.setBackground(bg)
+	gpu.fill(x, y, w, h, " ")
+end
+local function txt(x, y, s, fg, bg)
+	if bg then gpu.setBackground(bg) end
+	gpu.setForeground(fg or C.txt)
+	gpu.set(x, y, tostring(s))
+end
+
+local windows = {}
+local focus = nil
+
+local function raise(win)
+	for i, w in ipairs(windows) do
+		if w == win then table.remove(windows, i) break end
+	end
+	table.insert(windows, win)
+	focus = win
+end
+
+local function newWindow(title, x, y, w, h, app)
+	local win = {title = title, x = x, y = y, w = w, h = h, app = app}
+	table.insert(windows, win)
+	raise(win)
+	if app.init then app.init(win) end
+end
+
+local function closeWin(win)
+	for i, w in ipairs(windows) do
+		if w == win then table.remove(windows, i) break end
+	end
+	focus = windows[#windows]
+end
+
+------------------------------------------------ APPS
+local notesApp = {
+	init = function(win) win.lines = {""} end,
+	draw = function(win)
+		local maxRows = win.h - 2
+		local start = math.max(1, #win.lines - maxRows + 1)
+		local row = 0
+		for i = start, #win.lines do
+			row = row + 1
+			local s = win.lines[i]
+			if i == #win.lines and win == focus then s = s .. "_" end
+			txt(win.x + 1, win.y + row, s:sub(1, win.w - 2), C.txt, C.win)
+		end
+	end,
+	key = function(win, chr, code)
+		local L = win.lines
+		if code == 28 then table.insert(L, "")
+		elseif code == 14 then
+			if #L[#L] > 0 then L[#L] = L[#L]:sub(1, -2)
+			elseif #L > 1 then table.remove(L) end
+		elseif chr and chr >= 32 then
+			L[#L] = L[#L] .. utf8.char(chr)
+		end
+	end,
+}
+
+local CALC = {{"7", "8", "9", "/"}, {"4", "5", "6", "*"}, {"1", "2", "3", "-"}, {"0", ".", "=", "+"}}
+
+local function calcEval(win)
+	if not win.op or not win.acc then return end
+	local b = tonumber(win.disp) or 0
+	local a = win.acc
+	local r
+	if win.op == "+" then r = a + b
+	elseif win.op == "-" then r = a - b
+	elseif win.op == "*" then r = a * b
+	else r = b ~= 0 and a / b or 0 end
+	if r == math.floor(r) then win.disp = tostring(math.floor(r)) else win.disp = tostring(r) end
+	win.acc, win.op = nil, nil
+end
+
+local function calcPress(win, k)
+	if k == "C" then
+		win.disp, win.acc, win.op, win.new = "0", nil, nil, true
+	elseif k:match("%d") or k == "." then
+		if win.new then win.disp = (k == ".") and "0." or k win.new = false
+		elseif #win.disp < 12 then win.disp = win.disp .. k end
+	elseif k == "=" then
+		calcEval(win)
+		win.new = true
+	else
+		if win.op then calcEval(win) end
+		win.acc = tonumber(win.disp) or 0
+		win.op = k
+		win.new = true
+	end
+end
+
+local calcApp = {
+	init = function(win) win.disp, win.new = "0", true end,
+	draw = function(win)
+		fill(win.x + 1, win.y + 1, win.w - 2, 1, C.bg)
+		txt(win.x + 2, win.y + 1, win.disp:sub(-(win.w - 4)), C.ok, C.bg)
+		for r, row in ipairs(CALC) do
+			for c, label in ipairs(row) do
+				local bx, by = win.x + 1 + (c - 1) * 5, win.y + 3 + (r - 1) * 2
+				fill(bx, by, 4, 1, C.btn)
+				txt(bx + 1, by, label, C.txt, C.btn)
+			end
+		end
+		local cy = win.y + 3 + 4 * 2
+		fill(win.x + 1, cy, win.w - 2, 1, C.err)
+		txt(win.x + 2, cy, "C (limpar)", C.txt, C.err)
+	end,
+	touch = function(win, col, row)
+		if row == win.y + 3 + 4 * 2 then return calcPress(win, "C") end
+		for r, rowT in ipairs(CALC) do
+			for c, label in ipairs(rowT) do
+				local bx, by = win.x + 1 + (c - 1) * 5, win.y + 3 + (r - 1) * 2
+				if row == by and col >= bx and col < bx + 4 then return calcPress(win, label) end
+			end
+		end
+	end,
+	key = function(win, chr, code)
+		local ch = chr and chr >= 32 and utf8.char(chr) or ""
+		if code == 28 then calcPress(win, "=")
+		elseif ch:match("%d") or ch == "." or ch == "+" or ch == "-" or ch == "*" or ch == "/" then calcPress(win, ch)
+		elseif ch == "c" or ch == "C" then calcPress(win, "C") end
+	end,
+}
+
+local aboutApp = {
+	draw = function(win)
+		txt(win.x + 2, win.y + 2, "GUIOS 1.0", C.key, C.win)
+		txt(win.x + 2, win.y + 3, "Tempo ligado: " .. math.floor(computer.uptime()) .. " s", C.txt, C.win)
+		txt(win.x + 2, win.y + 4, "Tab troca de janela", C.dim, C.win)
+		txt(win.x + 2, win.y + 5, "Esc fecha a janela", C.dim, C.win)
+	end,
+}
+
+local icons = {
+	{name = "Notas", open = function() newWindow("Notas", 4, 4, 40, 14, notesApp) end},
+	{name = "Calculadora", open = function() newWindow("Calculadora", 30, 6, 24, 15, calcApp) end},
+	{name = "Sobre", open = function() newWindow("Sobre", 12, 12, 40, 7, aboutApp) end},
+}
+local function iconPos(i) return 3 + (i - 1) * 14, 2 end
+
+------------------------------------------------ DESENHO
+local function redraw()
+	fill(1, 1, W, H, C.bg)
+	for i, ic in ipairs(icons) do
+		local x, y = iconPos(i)
+		fill(x, y, 12, 3, C.btn)
+		txt(x + 1, y + 1, ic.name:sub(1, 10), C.txt, C.btn)
+	end
+	for _, w in ipairs(windows) do
+		local f = (w == focus)
+		fill(w.x, w.y, w.w, w.h, C.win)
+		fill(w.x, w.y, w.w, 1, f and C.bar2 or C.bar)
+		txt(w.x + 1, w.y, w.title:sub(1, w.w - 6), C.txt, f and C.bar2 or C.bar)
+		txt(w.x + w.w - 4, w.y, "[X]", C.err, f and C.bar2 or C.bar)
+		if w.app.draw then w.app.draw(w) end
+	end
+	fill(1, H, W, 1, C.bar)
+	txt(2, H, "GUIOS | clique para abrir | Tab: trocar | Esc: fechar", C.dim, C.bar)
+end
+
+------------------------------------------------ ENTRADA
+local function onTouch(col, row)
+	for i = #windows, 1, -1 do
+		local w = windows[i]
+		if col >= w.x and col <= w.x + w.w - 1 and row >= w.y and row <= w.y + w.h - 1 then
+			if row == w.y and col >= w.x + w.w - 4 and col <= w.x + w.w - 2 then return closeWin(w) end
+			raise(w)
+			if row > w.y and w.app.touch then w.app.touch(w, col, row) end
+			return
+		end
+	end
+	for i, ic in ipairs(icons) do
+		local x, y = iconPos(i)
+		if col >= x and col < x + 12 and row >= y and row < y + 3 then return ic.open() end
+	end
+end
+
+while true do
+	redraw()
+	local e, _, a, b = computer.pullSignal()
+	if e == "touch" then
+		onTouch(a, b)
+	elseif e == "key_down" then
+		local chr, code = a, b
+		if code == 1 and focus then closeWin(focus)
+		elseif code == 15 and #windows > 1 then raise(windows[1])
+		elseif focus and focus.app.key then focus.app.key(focus, chr, code) end
+	end
+end
+]==])
 
 print("[OC Sim v3] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
