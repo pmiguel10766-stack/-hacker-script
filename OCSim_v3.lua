@@ -733,6 +733,7 @@ ex.OCSimInput = UIS.InputBegan:Connect(function(input, gp)
 	if not col then return end
 	pushSignal("touch", scrC.addr, col, row, 0, "jogador")
 end)
+end
 local kbC = addComp("keyboard", {})
 KBS[1] = kbC.addr
 local tmpAddr = addDisk("tmpfs", true)
@@ -777,6 +778,7 @@ addComp("internet", {
 		}
 	end,
 })
+do
 local SAVE_DIR = "OpenComputers"
 addComp("workspace", {
 	write = function(name, data)
@@ -792,37 +794,6 @@ addComp("workspace", {
 		return SAVE_DIR .. "/" .. name
 	end,
 	getPath = function() return SAVE_DIR end,
-	read = function(name)
-		local g = (getgenv and getgenv()) or _G
-		local rf = g.readfile or readfile
-		local isf = g.isfile or isfile
-		local clean = tostring(name):gsub("%.%.", ""):gsub("/", "_")
-		local path = SAVE_DIR .. "/" .. clean
-		if isf and not isf(path) then return nil, "arquivo nao existe em Delta/Workspace/" .. path end
-		local ok, data = pcall(rf, path)
-		if not ok then return nil, tostring(data) end
-		return data
-	end,
-	list = function()
-		local g = (getgenv and getgenv()) or _G
-		local lf = g.listfiles or listfiles
-		if not lf then return {} end
-		local ok, files = pcall(lf, SAVE_DIR)
-		if not ok then return {} end
-		local r = {}
-		for _, f in ipairs(files) do r[#r + 1] = tostring(f):match("([^/\\]+)$") end
-		return r
-	end,
-	read = function(name)
-		local g = (getgenv and getgenv()) or _G
-		local rf = g.readfile or readfile
-		local isf = g.isfile or isfile
-		local path = SAVE_DIR .. "/" .. tostring(name):gsub("%.%.", ""):gsub("/", "_")
-		if isf and not isf(path) then return nil, "nao existe em Workspace/" .. path end
-		local ok, data = pcall(rf, path)
-		if not ok then return nil, tostring(data) end
-		return data
-	end,
 })
 local SUSPECT = {
 	{"require com ID numerico", "require%s*%(%s*%d", true},
@@ -898,6 +869,7 @@ eSave.MouseButton1Click:Connect(function()
 	end
 end)
 eCancel.MouseButton1Click:Connect(function() closeEditor(false) end)
+end
 local function pullFor(co) return co end
 local function makeEnv()
 	local rawResume, rawYield, rawStatus, rawCreate = coroutine.resume, coroutine.yield, coroutine.status, coroutine.create
@@ -1183,6 +1155,7 @@ local function step()
 		if coroutine.status(M.co) == "dead" then crash("computer halted (o /init.lua terminou)") return end
 	end
 end
+do
 local KEYCODE = {[" "] = 57, ["-"] = 12, ["="] = 13, ["["] = 26, ["]"] = 27, [";"] = 39, ["'"] = 40, [","] = 51, ["."] = 52, ["/"] = 53, ["\\"] = 43, ["`"] = 41}
 for _, r in ipairs({{"1234567890", 2}, {"qwertyuiop", 16}, {"asdfghjkl", 30}, {"zxcvbnm", 44}}) do
 	for i = 1, #r[1] do KEYCODE[r[1]:sub(i, i)] = r[2] + i - 1 end
@@ -1279,6 +1252,7 @@ ex.OCSimConn = RunService.Heartbeat:Connect(function(dt)
 	acc += dt
 	if acc >= 0.05 then acc = 0 flush() end
 end)
+end
 seed(dA, "/init.lua", 
 [==[
 -- OpenOS-Lite 2.0  (/init.lua do disco 1)
@@ -1970,16 +1944,6 @@ cmds.scan = function(a)
 		cwrite(COL.dim, "Nao rode esse codigo sem entender o que ele faz.\n")
 	end
 end
-cmds.load = function(a)
-	if not a[1] then return twrite("uso: load arquivo.lua  (le de Delta/Workspace/OpenComputers)\n") end
-	local ws = component.list("workspace")()
-	if not ws then return perr("load: sem componente workspace") end
-	local data, err = component.invoke(ws, "read", a[1])
-	if not data then return perr("load: " .. tostring(err)) end
-	local ok, e = writeFile(a[1], data)
-	if not ok then return perr("load: " .. tostring(e)) end
-	cwrite(COL.exe, "carregado: " .. a[1] .. " (" .. #data .. " bytes)\n")
-end
 cmds.save = function(a)
 	if not a[1] then return twrite("uso: save arquivo.lua  (salva em Delta/Workspace/OpenComputers)\n") end
 	local d = readFile(a[1])
@@ -1989,22 +1953,6 @@ cmds.save = function(a)
 	local path, err = component.invoke(ws, "write", fs.name(a[1]), d)
 	if not path then return perr("save: " .. tostring(err)) end
 	cwrite(COL.exe, "salvo: " .. path .. " (" .. #d .. " bytes)\n")
-end
-cmds.load = function(a)
-	local ws = component.list("workspace")()
-	if not ws then return perr("load: sem componente workspace") end
-	if not a[1] then
-		local names = component.invoke(ws, "list")
-		if #names == 0 then return twrite("nenhum arquivo em Delta/Workspace/OpenComputers\n") end
-		for _, n in ipairs(names) do twrite("  " .. n .. "\n") end
-		return cwrite(COL.dim, "uso: load NOME  (copia para a pasta atual)\n")
-	end
-	local data, err = component.invoke(ws, "read", a[1])
-	if not data then return perr("load: " .. tostring(err)) end
-	local dest = fs.concat(fs.cwd, a[2] or fs.name(a[1]))
-	local ok, e = writeFile(dest, data)
-	if not ok then return perr("load: " .. tostring(e)) end
-	cwrite(COL.exe, "carregado: " .. dest .. " (" .. #data .. " bytes)\n")
 end
 cmds.boot = function(a)
 	local list = {}
@@ -2335,6 +2283,7 @@ while true do
 end
 ]==])
 seed(dB, "/readme.txt", "Segundo disco com outro /init.lua.\n")
+do
 local hdd = mk("Frame", {Size = UDim2.new(0.8, 0, 0, 220), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0),
 	BackgroundColor3 = T.panel, Visible = false, ZIndex = 40, BorderSizePixel = 0}, gui)
 mk("UISizeConstraint", {MaxSize = Vector2.new(360, 220)}, hdd)
@@ -2508,6 +2457,7 @@ makeFloppy = function()
 	if not ok then itemInfo.Text = tostring(addr) return end
 	driveFloppy = addr
 	itemInfo.Text = "Disquete FLOPPY" .. floppyCount .. " colocado na unidade."
+end
 end
 local _, dGui = addDisk("GUIOS")
 seed(dGui, "/init.lua", 
@@ -2712,5 +2662,4 @@ while true do
 	end
 end
 ]==])
-end
-print("[OC Sim v3] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
+print("[OC Sim v4] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
