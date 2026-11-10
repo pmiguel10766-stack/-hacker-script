@@ -407,7 +407,7 @@ local function addDisk(label, tmp, restricted)
 end
 local function seed(d, path, data)
 	local prev = d.fs.restricted
-	d.fs.restricted = false -- so sistema (interno) pode gravar mesmo em disco restrito
+	d.fs.restricted = false
 	local dir = path:match("^(.*)/[^/]*$")
 	if dir and dir ~= "" then d.m.makeDirectory(dir) end
 	local h = d.m.open(path, "w")
@@ -520,7 +520,7 @@ local CATALOG = {
 }
 local selectedItem = nil
 local diskCount = 2
-local userDisks = {} -- HDDs criados pelo Item (os nativos nao podem ser excluidos)
+local userDisks = {}
 local itemPanel = mk("Frame", {
 	Size = UDim2.new(0.96, 0, 0, 300), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10),
 	BackgroundColor3 = T.panel, Visible = false, ZIndex = 30, BorderSizePixel = 0,
@@ -658,8 +658,8 @@ local function screenToCell(sx, sy)
 	return col, row
 end
 local calib, calibStep, calibPts, calibSaved = nil, 0, {}, nil
-local TL = {c = 3, r = 2}      -- centro do alvo vermelho (cols 2-4, linha 2)
-local function brCell() return {c = scr.W - 3, r = scr.H - 1} end -- centro do alvo verde
+local TL = {c = 3, r = 2}
+local function brCell() return {c = scr.W - 3, r = scr.H - 1} end
 local function saveCell(x, y)
 	local i = (y - 1) * scr.W + x
 	return {x = x, y = y, ch = scr.ch[i], fg = scr.fg[i], bg = scr.bg[i]}
@@ -794,6 +794,29 @@ addComp("workspace", {
 		return SAVE_DIR .. "/" .. name
 	end,
 	getPath = function() return SAVE_DIR end,
+	list = function()
+		local g = (getgenv and getgenv()) or _G
+		local lf = g.listfiles or listfiles
+		if not lf then return {} end
+		local ok, files = pcall(lf, SAVE_DIR)
+		local r = {}
+		if ok and type(files) == "table" then
+			for _, p in ipairs(files) do r[#r + 1] = tostring(p):match("([^/\\]+)$") end
+		end
+		table.sort(r)
+		return r
+	end,
+	read = function(name)
+		local g = (getgenv and getgenv()) or _G
+		local rf = g.readfile or readfile
+		local isf = g.isfile or isfile
+		name = tostring(name):gsub("%.%.", ""):gsub("/", "_")
+		local path = SAVE_DIR .. "/" .. name
+		if isf and not isf(path) then return nil, "arquivo nao existe em Workspace/" .. path end
+		local ok, data = pcall(rf, path)
+		if not ok then return nil, "nao foi possivel ler (" .. tostring(data) .. ")" end
+		return data
+	end,
 })
 local SUSPECT = {
 	{"require com ID numerico", "require%s*%(%s*%d", true},
@@ -1345,7 +1368,6 @@ function term.read(opts)
 		local e, _, c, k = computer.pullSignal(0.5)
 		cursor(false)
 		if e == "touch" then
-			-- indicador de clique: mostra a posicao no canto superior direito sem mexer no cursor
 			local ox, oy = cx, cy
 			gpu.setForeground(COL.acc)
 			gpu.set(math.max(1, W - 15), 1, string.format("toque %3d,%-3d", c, k))
@@ -1386,7 +1408,6 @@ function term.read(opts)
 					table.insert(buf, pos + 1, utf8.char(c)) pos = pos + 1 changed = true
 				end
 			elseif e == "touch" then
-				-- sinal: ("touch", endereco, coluna, linha, botao, jogador)
 				local msg = " touch " .. tostring(c) .. "," .. tostring(k) .. " "
 				local ox = math.max(1, W - unicode.len(msg) + 1)
 				local ob, of = gpu.getBackground(), gpu.getForeground()
@@ -1954,6 +1975,36 @@ cmds.save = function(a)
 	if not path then return perr("save: " .. tostring(err)) end
 	cwrite(COL.exe, "salvo: " .. path .. " (" .. #d .. " bytes)\n")
 end
+cmds.load = function(a)
+	if not a[1] then return twrite("uso: load NomeArquivos   (copia de Delta/Workspace/OpenComputers para a pasta atual)\n") end
+	local ws = component.list("workspace")()
+	if not ws then return perr("load: sem componente workspace") end
+	local data, err = component.invoke(ws, "read", a[1])
+	if not data then return perr("load: " .. tostring(err)) end
+	local dest = fs.concat(fs.cwd, fs.name(a[1]))
+	local ok, e = writeFile(dest, data)
+	if not ok then return perr("load: " .. tostring(e)) end
+	cwrite(COL.exe, "carregado: " .. dest .. " (" .. #data .. " bytes)\n")
+	local av = component.list("antivirus")()
+	local hits = av and component.invoke(av, "analyze", data) or {}
+	if #hits > 0 then
+		cwrite(COL.err, "Atencao: " .. #hits .. " padrao(oes) suspeito(s). Use scan antes de rodar.\n")
+	end
+end
+cmds.arquivos = function(a)
+	local ws = component.list("workspace")()
+	if not ws then return perr("arquivos: sem componente workspace") end
+	if a[1] then
+		cmds.load(a)
+		if fs.exists(fs.concat(fs.cwd, fs.name(a[1]))) then cmds.edit({fs.concat(fs.cwd, fs.name(a[1]))}) end
+		return
+	end
+	local names = component.invoke(ws, "list")
+	cwrite(COL.hi, "Delta/Workspace/" .. tostring(component.invoke(ws, "getPath")) .. "\n")
+	if #names == 0 then return cwrite(COL.dim, "(vazio)\n") end
+	for _, n in ipairs(names) do twrite("  " .. n .. "\n") end
+	cwrite(COL.dim, "load NOME copia para o disco. arquivos NOME copia e abre no editor.\n")
+end
 cmds.boot = function(a)
 	local list = {}
 	for addr in component.list("filesystem") do
@@ -2067,7 +2118,6 @@ seed(dA, "/etc/motd", "OpenOS-Lite 2.0\n")
 seed(dB, "/init.lua", 
 [==[
 -- MiniOS 0.2 (/init.lua do disco 2): GUI simples com area de trabalho
--- Clique (touch) ou setas + Enter abrem apps. Esc fecha a janela.
 local gpu = component.proxy(component.list("gpu")())
 gpu.bind(component.list("screen")())
 local W, H = gpu.maxResolution()
@@ -2143,8 +2193,6 @@ local function drawAbout()
 	gpu.set(3, 7, "Feito em Lua 5.3 (Luau)")
 end
 
-
--- Snake: setas mudam a direcao, R reinicia quando perde
 local snake = {}
 local function snakeFree(x, y)
 	for _, b in ipairs(snake.body) do if b.x == x and b.y == y then return false end end
@@ -2378,9 +2426,9 @@ itemDel.MouseButton1Click:Connect(function()
 	refreshItems()
 end)
 local driveLabel = "Unidade de disco"
-local driveFloppy = nil   -- endereco do disquete que esta dentro da unidade
-local lastEjected = nil   -- ultimo disquete ejetado (pode ser colocado de volta)
-local floppyComp = {}     -- addr -> registro do componente, guardado enquanto esta ejetado
+local driveFloppy = nil
+local lastEjected = nil
+local floppyComp = {}
 local floppyCount = 0
 local function removeComp(addr)
 	for i, c in ipairs(comps) do
@@ -2505,7 +2553,6 @@ local function closeWin(win)
 	focus = windows[#windows]
 end
 
------------------------------------------------- APPS
 local notesApp = {
 	init = function(win) win.lines = {""} end,
 	draw = function(win)
@@ -2612,7 +2659,6 @@ local icons = {
 }
 local function iconPos(i) return 3 + (i - 1) * 14, 2 end
 
------------------------------------------------- DESENHO
 local function redraw()
 	fill(1, 1, W, H, C.bg)
 	for i, ic in ipairs(icons) do
@@ -2632,7 +2678,6 @@ local function redraw()
 	txt(2, H, "GUIOS | clique para abrir | Tab: trocar | Esc: fechar", C.dim, C.bar)
 end
 
------------------------------------------------- ENTRADA
 local function onTouch(col, row)
 	for i = #windows, 1, -1 do
 		local w = windows[i]
@@ -2662,4 +2707,4 @@ while true do
 	end
 end
 ]==])
-print("[OC Sim v4] pronto. Toque no gabinete ou em Power. Dois /init.lua = menu no BIOS.")
+print("[OC Sim v5] pronto. Novos comandos: load NOME, arquivos [NOME].")
